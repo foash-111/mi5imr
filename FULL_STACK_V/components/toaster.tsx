@@ -2,6 +2,7 @@
 
 import { Toast, ToastClose, ToastDescription, ToastProvider, ToastTitle, ToastViewport } from "@/components/toast"
 import { useToast } from "@/hooks/use-toast"
+import React from "react"
 
 export function Toaster() {
   const { toasts } = useToast()
@@ -14,7 +15,7 @@ export function Toaster() {
             {title && <ToastTitle>{title}</ToastTitle>}
             {description && <ToastDescription>{description}</ToastDescription>}
           </div>
-          {action}
+          {React.isValidElement(action) ? action : null}
           <ToastClose />
         </Toast>
       ))}

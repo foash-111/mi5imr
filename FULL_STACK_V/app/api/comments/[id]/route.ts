@@ -1,12 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { updateCommentStatus, deleteComment, getUserByEmail } from "@/backend/lib/db"
+import { updateCommentStatus, deleteComment, updateCommentContent, canUserEditComment, canUserDeleteComment, getUserByEmail } from "@/backend/lib/db"
 import { getServerSession } from "next-auth"
 
-// PUT /api/comments/[id] - Update comment status (admin only)
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+// PUT /api/comments/[id] - Update comment content or status
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-
-		const awaitedParams = await params
+    const awaitedParams = await params
     const session = await getServerSession()
 
     // Check if user is authenticated
@@ -17,34 +16,61 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     // Get user from database
     const user = await getUserByEmail(session.user.email)
 
-    if (!user || !user.isAdmin) {
-      return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
     }
 
     const data = await request.json()
 
-    // Validate status
-    if (!data.status || !["approved", "rejected"].includes(data.status)) {
-      return NextResponse.json({ error: "Invalid status" }, { status: 400 })
+    // Check if this is a status update (admin only) or content update
+    if (data.status) {
+      // Status update - admin only
+      if (!user.isAdmin) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+
+      // Validate status
+      if (!["approved", "rejected"].includes(data.status)) {
+        return NextResponse.json({ error: "Invalid status" }, { status: 400 })
+      }
+
+      // Update comment status
+      const success = await updateCommentStatus(awaitedParams.id, data.status)
+
+      if (!success) {
+        return NextResponse.json({ error: "Comment not found" }, { status: 404 })
+      }
+
+      return NextResponse.json({ success: true })
+    } else if (data.content) {
+      // Content update - author or admin only
+      const canEdit = await canUserEditComment(user._id!.toString(), awaitedParams.id)
+
+      if (!canEdit) {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 })
+      }
+
+      // Update comment content
+      const success = await updateCommentContent(awaitedParams.id, data.content)
+
+      if (!success) {
+        return NextResponse.json({ error: "Comment not found" }, { status: 404 })
+      }
+
+      return NextResponse.json({ success: true })
+    } else {
+      return NextResponse.json({ error: "Missing content or status" }, { status: 400 })
     }
-
-    // Update comment status
-    const success = await updateCommentStatus(awaitedParams.id, data.status)
-
-    if (!success) {
-      return NextResponse.json({ error: "Comment not found" }, { status: 404 })
-    }
-
-    return NextResponse.json({ success: true })
   } catch (error) {
-    console.error("Error updating comment status:", error)
-    return NextResponse.json({ error: "Failed to update comment status" }, { status: 500 })
+    console.error("Error updating comment:", error)
+    return NextResponse.json({ error: "Failed to update comment" }, { status: 500 })
   }
 }
 
 // DELETE /api/comments/[id] - Delete a comment
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
+    const awaitedParams = await params
     const session = await getServerSession()
 
     // Check if user is authenticated
@@ -55,12 +81,19 @@ export async function DELETE(request: NextRequest, { params }: { params: { id: s
     // Get user from database
     const user = await getUserByEmail(session.user.email)
 
-    if (!user || !user.isAdmin) {
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+
+    // Check if user can delete this comment
+    const canDelete = await canUserDeleteComment(user._id!.toString(), awaitedParams.id)
+
+    if (!canDelete) {
       return NextResponse.json({ error: "Forbidden" }, { status: 403 })
     }
 
     // Delete comment
-    const success = await deleteComment(params.id)
+    const success = await deleteComment(awaitedParams.id)
 
     if (!success) {
       return NextResponse.json({ error: "Comment not found" }, { status: 404 })

@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
@@ -44,7 +45,9 @@ const books = [
 export default function BooksPage() {
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
-      <Navbar />
+      <Suspense fallback={<div>Loading...</div>}>
+        <Navbar />
+      </Suspense>
       <main className="flex-1 container py-8">
         <div className="max-w-5xl mx-auto">
           <div className="mb-8 text-center">

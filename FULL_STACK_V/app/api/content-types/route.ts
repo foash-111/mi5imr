@@ -11,7 +11,7 @@ export async function GET() {
 	/* 	await ensureInitialCache();
 	   const contentTypes = await redis.get("contentTypes"); */
     const contentTypes = await getContentTypes()
-		console.log("Fetched content types:", contentTypes)
+		//console.log("Fetched content types:", contentTypes)
     return NextResponse.json(contentTypes)
   } catch (error) {
     console.error("Error fetching content types:", error)

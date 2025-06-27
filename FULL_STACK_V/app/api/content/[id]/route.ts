@@ -4,10 +4,11 @@ import { getServerSession } from "next-auth"
 import { ObjectId } from "mongodb"
 import fs from "fs/promises"
 import path from "path"
+import { uploadToFalStorage } from "@/lib/upload-utils"
 
 
 // GET /api/content/[id] - Get content by ID
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
 
 		const awaitedParams = await params;
@@ -31,7 +32,7 @@ export const config = {
 };
 const uploadDir = path.join(process.cwd(), "public/uploads")
 // PUT /api/content/[id] - Update content
-export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
 
 		const awaitedParams = await params;
@@ -51,44 +52,53 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 
     // Parse form data
     const formData = await request.formData()
-		 console.log("formData soi", formData)
-		// Check if formData is empty
+    console.log("formData soi", formData)
+    // Check if formData is empty
 
-		// Validate required fields
+    // Validate required fields
     // Extract fields
     const title = formData.get("title") as string;
-    const slug = formData.get("slug") as string;
     const content = formData.get("content") as string;
     const excerpt = formData.get("excerpt") as string;
     const contentTypeId = formData.get("contentTypeId") as string;
-    const categories = formData.get("categories") ? JSON.parse(formData.get("categories") as string) : [];
+    const categoryIds = formData.get("categoryIds") ? JSON.parse(formData.get("categoryIds") as string) : [];
     const tags = formData.get("tags") ? JSON.parse(formData.get("tags") as string) : [];
     const externalUrl = formData.get("externalUrl") as string;
     const published = formData.get("published") === "true";
     const featured = formData.get("featured") === "true";
-    //const author = formData.get("author") ? JSON.parse(formData.get("author") as string) : null;
     const coverImageFile = formData.get("coverImage") as File | null;
-    const coverImageUrl = formData.get("coverImageUrl") as string | null;
+    const existingCoverImage = formData.get("existingCoverImage") as string | null;
 
-
-	 // Validate required formData
+    // Validate required formData
     if (!title || !content || !contentTypeId) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
     }
 
-		//Handle photo upload
-		let coverImage: string | undefined
-    /* const coverImageFile = formData.get("coverImage") as File | null; */
+    // Generate new slug from title
+    let slug = title
+      .toLowerCase()
+      .replace(/[^\w\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .trim()
 
-		
+    // Handle edge cases where slug might be empty or just dashes
+    if (!slug || slug === "-") {
+      // Generate a fallback slug using timestamp
+      const timestamp = Date.now()
+      slug = `post-${timestamp}`
+    }
+
+    console.log("🔗 Generated slug for edit:", slug)
+
+    // Handle photo upload
+    let coverImage: string | undefined
+
     if (coverImageFile) {
-      const fileName = `${Date.now()}-${coverImageFile.name}`
-      const filePath = path.join(uploadDir, fileName)
-      const fileBuffer = Buffer.from(await coverImageFile.arrayBuffer())
-      await fs.writeFile(filePath, fileBuffer)
-      coverImage = `/uploads/${fileName}`
-    } else if (coverImageUrl) {
-      coverImage = coverImageUrl; // Use existing image URL
+      // Upload to Fal.ai storage instead of saving locally
+      coverImage = await uploadToFalStorage(coverImageFile)
+    } else if (existingCoverImage) {
+      coverImage = existingCoverImage; // Use existing image URL
     } else {
       // Fetch existing coverImage from database
       const existingContent = await getContentById(awaitedParams.id);
@@ -98,17 +108,28 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
     // Update content
     const success = await updateContent(awaitedParams.id, {
       title,
+      slug,
       content,
       excerpt,
-			slug,
-      contentType: {
-        _id: new ObjectId(contentTypeId),
-      },
-      categories: categories.map((id: string) => ({ _id: new ObjectId(id) })),
+      // Fetch the full contentType object (assuming you have a function getContentTypeById)
+      contentType: await (async () => {
+        const { getContentTypeById } = await import("@/backend/lib/db");
+        const contentType = await getContentTypeById(contentTypeId);
+        if (!contentType) {
+          throw new Error("Invalid contentTypeId");
+        }
+        return {
+          _id: new ObjectId(contentTypeId),
+          name: contentType.name,
+          label: contentType.label,
+          icon: contentType.icon,
+        };
+      })(),
+      categories: categoryIds.map((id: string) => ({ _id: new ObjectId(id) })),
       tags,
-      externalUrl: formData.get("externalUrl") as string | undefined,
-      published: formData.get("published") === "true",
-      featured: formData.get("featured") === "true",
+      externalUrl: externalUrl || undefined,
+      published: published,
+      featured: featured,
       coverImage,
       updatedAt: new Date(),
     })
@@ -117,7 +138,22 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
       return NextResponse.json({ error: "Content not found" }, { status: 404 })
     }
 
-    return NextResponse.json({ success: true })
+    // Get the updated content to return the slug
+    const updatedContent = await getContentById(awaitedParams.id)
+    
+    console.log("✅ Content updated successfully:", {
+      id: updatedContent?._id,
+      slug: updatedContent?.slug,
+      title: updatedContent?.title,
+    })
+
+    return NextResponse.json({
+      success: true,
+      id: updatedContent?._id,
+      slug: updatedContent?.slug,
+      title: updatedContent?.title,
+      message: "Content updated successfully",
+    })
   } catch (error) {
     console.error("Error updating content:", error)
     return NextResponse.json({ error: "Failed to update content" }, { status: 500 })
@@ -125,10 +161,9 @@ export async function PUT(request: NextRequest, { params }: { params: { id: stri
 }
 
 // DELETE /api/content/[id] - Delete content
-export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+export async function DELETE(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   try {
-		
-		const awaitedParams = await params;
+    const awaitedParams = await params;
     const session = await getServerSession()
 
     // Check if user is authenticated

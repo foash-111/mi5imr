@@ -5,7 +5,7 @@ import { ObjectId } from "mongodb";
 import { User } from "@/backend/models/types";
 
 
-// PUT /api//api/deactivate-user-status - Update a user status
+// PUT /api/deactivate-user-status - Update a user status
 export async function PUT(request: NextRequest) {
   try {
     const session = await getServerSession();
@@ -27,12 +27,11 @@ export async function PUT(request: NextRequest) {
       return NextResponse.json({ error: "Invalid status value" }, { status: 400 });
     }
 
-    // Update only the status field
+    // Update only the status field, passing the user object with _id
     const userData: Partial<User> = {
-      ...existingUser,
+      _id: existingUser._id,
       status,
     };
-		
 
     const updatedUser = await updateUser(userData);
     if (!updatedUser) {

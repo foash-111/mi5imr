@@ -9,26 +9,86 @@ import { BookOpen, FileText, Heart, Bookmark, Share2, Calendar, Edit, Loader2, A
 import Image from "next/image"
 import { useSession } from "next-auth/react"
 import { useToast } from "@/hooks/use-toast"
-import { getContentBySlug, toggleLike, toggleBookmark } from "@/lib/api-client"
+import { getContentBySlug, toggleLike, toggleBookmark, getContentById, checkLikeStatus, checkBookmarkStatus } from "@/lib/api-client"
 import { useRouter } from "next/navigation"
 
-export function ContentDetail({ slug }: { slug: string }) {
-  const [content, setContent] = useState<any | null>(null)
+interface Content {
+  _id: string;
+  title: string;
+  content: string;
+  excerpt: string;
+  coverImage: string;
+  contentType: {
+    name: string;
+    label: string;
+  };
+  author: {
+    name: string;
+    email: string;
+    avatar?: string;
+  };
+  createdAt: string;
+  likesCount: number;
+  tags: string[];
+}
+
+interface ContentDetailProps {
+  slug: string
+  initialContent?: Content
+}
+
+export function ContentDetail({ slug, initialContent }: ContentDetailProps) {
+  const { data: session } = useSession()
+  const router = useRouter()
+  const [content, setContent] = useState<Content | null>(initialContent || null)
+  const [isLoading, setIsLoading] = useState(!initialContent)
+  const [error, setError] = useState<string | null>(null)
   const [isLiked, setIsLiked] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
-  const [isLoading, setIsLoading] = useState(true)
-  const [error, setError] = useState<string | null>(null)
-  const { data: session } = useSession()
   const { toast } = useToast()
-  const router = useRouter()
 
   useEffect(() => {
+    // If we have initial content, use it and don't fetch again
+    if (initialContent) {
+      setContent(initialContent)
+      setIsLoading(false)
+      // Still check user status even with initial content
+      if (session && initialContent._id) {
+        checkUserStatus(initialContent._id)
+      }
+      return
+    }
+
+    // Only fetch if we don't have initial content and have a valid slug
+    if (!slug || slug === "undefined" || slug === "-") {
+      setError("Invalid content identifier")
+      setIsLoading(false)
+      return
+    }
+
     async function fetchContent() {
       setIsLoading(true)
       setError(null)
       try {
-        const data = await getContentBySlug(slug)
+        // First try to fetch by slug
+        let data = await getContentBySlug(slug)
+        
+        // If that fails and the slug looks like an ObjectId, try fetching by ID
+        if (!data && /^[0-9a-fA-F]{24}$/.test(slug)) {
+          console.log("🔄 Slug looks like ObjectId, trying to fetch by ID:", slug)
+          data = await getContentById(slug)
+        }
+        
+        if (!data) {
+          throw new Error("Content not found")
+        }
+        
         setContent(data)
+        
+        // Check user status if logged in
+        if (session && data._id) {
+          await checkUserStatus(data._id)
+        }
       } catch (err) {
         console.error("Error fetching content:", err)
         setError("Failed to load content. Please try again later.")
@@ -38,7 +98,45 @@ export function ContentDetail({ slug }: { slug: string }) {
     }
 
     fetchContent()
-  }, [slug])
+  }, [slug, session])
+
+  // Handle session changes
+  useEffect(() => {
+    if (content?._id) {
+      checkUserStatus(content._id)
+    }
+  }, [session?.user?.email, content?._id])
+
+  // Separate function to check user status
+  const checkUserStatus = async (contentId: string) => {
+    if (!session?.user?.email) {
+      // Reset status for non-logged-in users
+      setIsLiked(false)
+      setIsSaved(false)
+      return
+    }
+
+    try {
+      const [likeResponse, bookmarkResponse] = await Promise.all([
+        checkLikeStatus(contentId),
+        checkBookmarkStatus(contentId)
+      ])
+      
+      setIsLiked(likeResponse.liked)
+      setIsSaved(bookmarkResponse.saved)
+      
+      console.log("✅ User status fetched:", {
+        liked: likeResponse.liked,
+        saved: bookmarkResponse.saved,
+        contentId: contentId
+      })
+    } catch (error) {
+      console.error("❌ Error fetching user status:", error)
+      // Reset status on error
+      setIsLiked(false)
+      setIsSaved(false)
+    }
+  }
 
   const handleLike = async () => {
     if (!session) {
@@ -49,9 +147,13 @@ export function ContentDetail({ slug }: { slug: string }) {
       return
     }
 
+    if (!content) return
+
     try {
       const { liked } = await toggleLike(content._id)
       setIsLiked(liked)
+
+			console.log("handle like",liked)
 
       // Update content like count
       setContent({
@@ -81,6 +183,8 @@ export function ContentDetail({ slug }: { slug: string }) {
       })
       return
     }
+
+    if (!content) return
 
     try {
       const { bookmarked } = await toggleBookmark(content._id)
@@ -128,6 +232,7 @@ export function ContentDetail({ slug }: { slug: string }) {
   }
 
   const handleEdit = () => {
+    if (!content) return
     router.push(`/admin/edit/${content._id}`)
   }
 
@@ -144,45 +249,73 @@ export function ContentDetail({ slug }: { slug: string }) {
     }
   }
 
-  // Add this function after the existing handleShare function
+  // Improved word counting function for Arabic content
   const countWords = (html: string) => {
-    // Remove HTML tags and count words
-    const text = html
-      .replace(/<[^>]*>/g, " ")
-      .replace(/\s+/g, " ")
-      .trim()
-    return text.split(" ").filter((word) => word.length > 0).length
+    try {
+      // Remove HTML tags and count words
+      const text = html
+        .replace(/<[^>]*>/g, " ") // Remove HTML tags
+        .replace(/&nbsp;/g, " ") // Replace non-breaking spaces
+        .replace(/&amp;/g, " ") // Replace HTML entities
+        .replace(/&lt;/g, " ")
+        .replace(/&gt;/g, " ")
+        .replace(/&quot;/g, " ")
+        .replace(/&#39;/g, " ")
+        .replace(/\s+/g, " ") // Replace multiple spaces with single space
+        .trim()
+      
+      // Split by spaces and filter out empty strings
+      const words = text.split(" ").filter((word) => word.length > 0)
+      
+      console.log("Word count for post:", words.length, "words")
+      return words.length
+    } catch (error) {
+      console.error("Error counting words:", error)
+      // Fallback: estimate word count by content length
+      return Math.floor(html.length / 5)
+    }
   }
 
-  // Add this component before the return statement
+  // Enhanced end-of-post interactions component
   const EndOfPostInteractions = () => (
-    <div className="mt-8 pt-6 border-t border-vintage-border">
-      <div className="text-center mb-4">
-        <p className="text-sm text-muted-foreground mb-4">هل أعجبك هذا المحتوى؟ شاركه مع أصدقائك!</p>
-        <div className="flex items-center justify-center gap-4">
+    <div className="mt-12 pt-8 border-t-2 border-vintage-border/30 bg-gradient-to-r from-vintage-paper-dark/5 to-transparent rounded-lg p-6">
+      <div className="text-center">
+        <h3 className="text-lg font-semibold mb-3 text-vintage-ink">هل أعجبك هذا المحتوى؟</h3>
+        <p className="text-sm text-muted-foreground mb-6">شاركه مع أصدقائك واترك إعجابك!</p>
+        
+        <div className="flex items-center justify-center gap-4 flex-wrap">
           <Button
             variant="outline"
             size="lg"
-            className={`border-vintage-border ${isLiked ? "text-red-500 border-red-200" : ""}`}
+            className={`border-vintage-border hover:bg-red-50 transition-colors ${
+              isLiked ? "text-red-500 border-red-200 bg-red-50" : ""
+            }`}
             onClick={handleLike}
           >
             <Heart className="h-5 w-5 mr-2" fill={isLiked ? "currentColor" : "none"} />
             <span>
-              {isLiked ? "أعجبني" : "إعجاب"} ({content.likesCount})
+              {isLiked ? "أعجبني" : "إعجاب"} ({content?.likesCount || 0})
             </span>
           </Button>
 
           <Button
             variant="outline"
             size="lg"
-            className={`border-vintage-border ${isSaved ? "text-vintage-accent border-vintage-accent/20" : ""}`}
+            className={`border-vintage-border hover:bg-vintage-accent/10 transition-colors ${
+              isSaved ? "text-vintage-accent border-vintage-accent/20 bg-vintage-accent/10" : ""
+            }`}
             onClick={handleSave}
           >
             <Bookmark className="h-5 w-5 mr-2" fill={isSaved ? "currentColor" : "none"} />
             <span>{isSaved ? "محفوظ" : "حفظ"}</span>
           </Button>
 
-          <Button variant="outline" size="lg" className="border-vintage-border" onClick={handleShare}>
+          <Button 
+            variant="outline" 
+            size="lg" 
+            className="border-vintage-border hover:bg-blue-50 transition-colors" 
+            onClick={handleShare}
+          >
             <Share2 className="h-5 w-5 mr-2" />
             <span>مشاركة</span>
           </Button>
@@ -225,6 +358,7 @@ export function ContentDetail({ slug }: { slug: string }) {
   const IconComponent = getIconForType(content.contentType.name)
   const isAuthor = session?.user?.email === content.author.email
   const isAdmin = session?.user?.isAdmin
+  const isAuthenticated = !!session?.user?.email // Check if user is actually authenticated (not guest)
 
   return (
     <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mb-8">
@@ -266,7 +400,7 @@ export function ContentDetail({ slug }: { slug: string }) {
             </div>
 
             <div className="flex items-center gap-2">
-              {(isAuthor || isAdmin) && (
+              {isAuthenticated && (isAuthor || isAdmin) && (
                 <Button variant="outline" size="sm" className="border-vintage-border" onClick={handleEdit}>
                   <Edit className="h-4 w-4 mr-1" />
                   <span>تعديل</span>
@@ -288,10 +422,28 @@ export function ContentDetail({ slug }: { slug: string }) {
           </div>
 
           <div className="prose prose-lg max-w-none rtl:text-right">
+            {/* Debug info in development
+            {process.env.NODE_ENV === "development" && (
+              <div className="mb-4 p-2 bg-yellow-100 border border-yellow-300 rounded text-xs">
+                <strong>Debug:</strong> Word count: {countWords(content.content)} words 
+                {countWords(content.content) > 400 ? " (Will show end interactions)" : " (Too short for end interactions)"}
+              </div>
+            )} */}
+            
             <div dangerouslySetInnerHTML={{ __html: content.content }} />
 
             {/* Show end-of-post interactions for long posts (>400 words) */}
-            {countWords(content.content) > 400 && <EndOfPostInteractions />}
+            {countWords(content.content) > 400 && (
+              <>
+                <div className="my-8 text-center">
+                  <div className="inline-flex items-center gap-2 text-sm text-muted-foreground bg-vintage-paper-dark/10 px-4 py-2 rounded-full">
+                    <span>📖</span>
+                    <span>مقال طويل - {countWords(content.content)} كلمة</span>
+                  </div>
+                </div>
+                <EndOfPostInteractions />
+              </>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2 mt-8 pt-6 border-t border-vintage-border">

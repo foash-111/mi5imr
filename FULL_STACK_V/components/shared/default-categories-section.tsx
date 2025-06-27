@@ -25,23 +25,42 @@ interface Category {
 interface DefaultCategoriesSectionProps {
   selectedCategories: string[]
   onCategoryChange: (categoryId: string) => void
+  defaultCategories?: Category[]
+  onCategoriesRefresh?: () => void
 }
 
-export function DefaultCategoriesSection({ selectedCategories, onCategoryChange }: DefaultCategoriesSectionProps) {
+export function DefaultCategoriesSection({ 
+  selectedCategories, 
+  onCategoryChange, 
+  defaultCategories: propDefaultCategories = [],
+  onCategoriesRefresh
+}: DefaultCategoriesSectionProps) {
   const { toast } = useToast()
-  const [defaultCategories, setDefaultCategories] = useState<Category[]>([])
+  const [defaultCategories, setDefaultCategories] = useState<Category[]>(propDefaultCategories)
   const [isLoading, setIsLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [currentCategory, setCurrentCategory] = useState<Category | null>(null)
   const [newCategoryName, setNewCategoryName] = useState("")
   const [newCategoryLabel, setNewCategoryLabel] = useState("")
 
-  // Fetch default categories
+  // Update local state when prop changes
   useEffect(() => {
+    setDefaultCategories(propDefaultCategories)
+    setIsLoading(false)
+  }, [propDefaultCategories])
+
+  // Fetch default categories (fallback for backward compatibility)
+  useEffect(() => {
+    // If defaultCategories are provided as props, don't fetch
+    if (propDefaultCategories.length > 0) {
+      setIsLoading(false)
+      return
+    }
+
     async function fetchDefaultCategories() {
       setIsLoading(true)
       try {
-        const response = await fetch("/api/categories/default")
+        const response = await fetch("/api/categories?default=true")
         if (response.ok) {
           const data = await response.json()
           setDefaultCategories(data)
@@ -59,7 +78,7 @@ export function DefaultCategoriesSection({ selectedCategories, onCategoryChange 
     }
 
     fetchDefaultCategories()
-  }, [toast])
+  }, [toast, propDefaultCategories.length])
 
   const handleAddDefaultCategory = async () => {
     if (!newCategoryName.trim() || !newCategoryLabel.trim()) {
@@ -91,9 +110,13 @@ export function DefaultCategoriesSection({ selectedCategories, onCategoryChange 
 
       if (response.ok) {
         const createdCategory = await response.json()
-        setDefaultCategories([...defaultCategories, createdCategory])
+        const updatedCategories = [...defaultCategories, createdCategory]
+        setDefaultCategories(updatedCategories)
         setNewCategoryName("")
         setNewCategoryLabel("")
+
+        // Trigger refresh in parent component
+        onCategoriesRefresh?.()
 
         toast({
           title: "تم إضافة التصنيف الافتراضي",
@@ -146,6 +169,9 @@ export function DefaultCategoriesSection({ selectedCategories, onCategoryChange 
         setNewCategoryLabel("")
         setIsEditing(false)
 
+        // Trigger refresh in parent component
+        onCategoriesRefresh?.()
+
         toast({
           title: "تم تعديل التصنيف الافتراضي",
           description: `تم تحديث "${newCategoryLabel}" بنجاح`,
@@ -177,6 +203,9 @@ export function DefaultCategoriesSection({ selectedCategories, onCategoryChange 
         if (selectedCategories.includes(categoryId)) {
           onCategoryChange(categoryId)
         }
+
+        // Trigger refresh in parent component
+        onCategoriesRefresh?.()
 
         toast({
           title: "تم حذف التصنيف الافتراضي",

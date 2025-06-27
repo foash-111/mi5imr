@@ -1,7 +1,7 @@
 "use client"
 
 import type React from "react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -12,7 +12,34 @@ export function Newsletter() {
   const [email, setEmail] = useState("")
   const [isSubmitted, setIsSubmitted] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
+  const [checking, setChecking] = useState(false)
   const { toast } = useToast()
+
+  // Check if email is already subscribed
+  useEffect(() => {
+    if (!email || !email.includes("@")) {
+      setIsSubmitted(false)
+      return
+    }
+    let ignore = false
+    setChecking(true)
+    fetch("/api/newsletter/subscribe/check", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email }),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (!ignore) setIsSubmitted(!!data.subscribed)
+      })
+      .catch(() => {
+        if (!ignore) setIsSubmitted(false)
+      })
+      .finally(() => {
+        if (!ignore) setChecking(false)
+      })
+    return () => { ignore = true }
+  }, [email])
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -79,7 +106,7 @@ export function Newsletter() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               required
-              disabled={isLoading}
+              disabled={isLoading || checking}
               className="flex-1 border-vintage-border focus-visible:ring-vintage-accent"
             />
             <Button

@@ -1,11 +1,11 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Pencil, Trash, Save, Plus, Settings } from "lucide-react"
+import { Pencil, Trash, Save, Plus, Settings, ChevronDown, ChevronRight } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -37,9 +37,19 @@ interface ContentType {
   icon: string
 }
 
+interface Category {
+  _id: string
+  name: string
+  label: string
+  contentTypeId?: string
+  isDefault: boolean
+}
+
 interface ContentTypeManagementProps {
   contentTypes: ContentType[]
   onContentTypesChange: (contentTypes: ContentType[]) => void
+  allCategories?: Category[]
+  defaultCategories?: Category[]
 }
 
 const AVAILABLE_ICONS = [
@@ -57,7 +67,12 @@ const AVAILABLE_ICONS = [
   { value: "Feather", label: "ريشة", icon: Feather },
 ]
 
-export function ContentTypeManagement({ contentTypes, onContentTypesChange }: ContentTypeManagementProps) {
+export function ContentTypeManagement({ 
+  contentTypes, 
+  onContentTypesChange, 
+  allCategories = [],
+  defaultCategories = []
+}: ContentTypeManagementProps) {
   const { toast } = useToast()
   const [isLoading, setIsLoading] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -65,6 +80,8 @@ export function ContentTypeManagement({ contentTypes, onContentTypesChange }: Co
   const [newTypeName, setNewTypeName] = useState("")
   const [newTypeLabel, setNewTypeLabel] = useState("")
   const [newTypeIcon, setNewTypeIcon] = useState("FileText")
+  const [expandedContentTypes, setExpandedContentTypes] = useState<Set<string>>(new Set())
+  const [contentTypeCategories, setContentTypeCategories] = useState<Record<string, Category[]>>({})
 
   const getIconComponent = (iconName: string) => {
     const iconData = AVAILABLE_ICONS.find((icon) => icon.value === iconName)
@@ -73,6 +90,72 @@ export function ContentTypeManagement({ contentTypes, onContentTypesChange }: Co
       return <IconComponent className="h-4 w-4" />
     }
     return <FileText className="h-4 w-4" />
+  }
+
+  // Get filtered categories for a content type
+  const getFilteredCategoriesForContentType = (contentTypeId: string) => {
+    // Get content-specific categories for this content type
+    const contentSpecificCategories = allCategories.filter(category => 
+      category.contentTypeId === contentTypeId && !category.isDefault
+    )
+    
+    // Filter out duplicates within the same content type based on name
+    const uniqueContentCategories: Category[] = []
+    const seenNames = new Set<string>()
+    
+    contentSpecificCategories.forEach(category => {
+      if (!seenNames.has(category.name)) {
+        seenNames.add(category.name)
+        uniqueContentCategories.push(category)
+      }
+    })
+    
+    // Only return content-specific categories, default categories are completely separate
+    return {
+      contentCategories: uniqueContentCategories,
+      defaultCategories: [], // Empty array since default categories are separate
+      totalCategories: uniqueContentCategories.length
+    }
+  }
+
+  // Fetch categories for a content type (fallback for backward compatibility)
+  const fetchCategoriesForContentType = async (contentTypeId: string) => {
+    // If we have allCategories, use the filtered approach
+    if (allCategories.length > 0) {
+      const filtered = getFilteredCategoriesForContentType(contentTypeId)
+      setContentTypeCategories(prev => ({
+        ...prev,
+        [contentTypeId]: filtered.contentCategories // Only content-specific categories
+      }))
+      return
+    }
+    
+    // Fallback to API fetching
+    try {
+      const response = await fetch(`/api/categories?contentTypeId=${contentTypeId}&excludeDefault=true`)
+      if (response.ok) {
+        const categories = await response.json()
+        setContentTypeCategories(prev => ({
+          ...prev,
+          [contentTypeId]: categories
+        }))
+      }
+    } catch (error) {
+      console.error("Error fetching categories for content type:", error)
+    }
+  }
+
+  // Toggle expanded state for content type
+  const toggleExpanded = (contentTypeId: string) => {
+    const newExpanded = new Set(expandedContentTypes)
+    if (newExpanded.has(contentTypeId)) {
+      newExpanded.delete(contentTypeId)
+    } else {
+      newExpanded.add(contentTypeId)
+      // Fetch categories when expanding
+      fetchCategoriesForContentType(contentTypeId)
+    }
+    setExpandedContentTypes(newExpanded)
   }
 
   const handleAddContentType = async () => {
@@ -258,33 +341,108 @@ export function ContentTypeManagement({ contentTypes, onContentTypesChange }: Co
           <div className="mb-6 space-y-3">
             <h4 className="font-medium text-sm">أنواع المحتوى الحالية</h4>
             {contentTypes.map((type) => (
-              <div
-                key={type._id}
-                className="flex items-center justify-between p-3 border rounded-md border-vintage-border"
-              >
-                <div className="flex items-center gap-3">
-                  {getIconComponent(type.icon)}
-                  <div>
-                    <span className="font-medium">{type.label}</span>
-                    <p className="text-sm text-muted-foreground">{type.name}</p>
+              <div key={type._id} className="border rounded-md border-vintage-border">
+                <div className="flex items-center justify-between p-3">
+                  <div className="flex items-center gap-3">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => toggleExpanded(type._id)}
+                      className="p-1 h-6 w-6"
+                    >
+                      {expandedContentTypes.has(type._id) ? (
+                        <ChevronDown className="h-4 w-4" />
+                      ) : (
+                        <ChevronRight className="h-4 w-4" />
+                      )}
+                    </Button>
+                    {getIconComponent(type.icon)}
+                    <div>
+                      <span className="font-medium">{type.label}</span>
+                      <p className="text-sm text-muted-foreground">{type.name}</p>
+                    </div>
+                  </div>
+                  <div className="flex gap-1">
+                    <Button variant="ghost" size="sm" onClick={() => startEditingContentType(type)} disabled={isLoading}>
+                      <Pencil className="h-4 w-4" />
+                      <span className="sr-only">تعديل</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-500 hover:text-red-700"
+                      onClick={() => handleDeleteContentType(type._id)}
+                      disabled={isLoading || contentTypes.length <= 1}
+                    >
+                      <Trash className="h-4 w-4" />
+                      <span className="sr-only">حذف</span>
+                    </Button>
                   </div>
                 </div>
-                <div className="flex gap-1">
-                  <Button variant="ghost" size="sm" onClick={() => startEditingContentType(type)} disabled={isLoading}>
-                    <Pencil className="h-4 w-4" />
-                    <span className="sr-only">تعديل</span>
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="text-red-500 hover:text-red-700"
-                    onClick={() => handleDeleteContentType(type._id)}
-                    disabled={isLoading || contentTypes.length <= 1}
-                  >
-                    <Trash className="h-4 w-4" />
-                    <span className="sr-only">حذف</span>
-                  </Button>
-                </div>
+                
+                {/* Categories section */}
+                {expandedContentTypes.has(type._id) && (
+                  <div className="border-t border-vintage-border bg-gray-50 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <h5 className="text-sm font-medium">تصنيفات {type.label}</h5>
+                      {allCategories.length > 0 ? (
+                        <span className="text-xs text-muted-foreground">
+                          {getFilteredCategoriesForContentType(type._id).totalCategories} تصنيف خاص
+                        </span>
+                      ) : (
+                        <span className="text-xs text-muted-foreground">
+                          {contentTypeCategories[type._id]?.length || 0} تصنيف خاص
+                        </span>
+                      )}
+                    </div>
+                    {(() => {
+                      if (allCategories.length > 0) {
+                        const filtered = getFilteredCategoriesForContentType(type._id)
+                        
+                        if (filtered.contentCategories.length > 0) {
+                          return (
+                            <div className="space-y-1">
+                              {filtered.contentCategories.map((category) => (
+                                <div key={category._id} className="flex items-center justify-between text-sm p-2 bg-white rounded border">
+                                  <div className="flex items-center gap-2">
+                                    <span>{category.label}</span>
+                                  </div>
+                                  <span className="text-xs text-muted-foreground">({category.name})</span>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        } else {
+                          return (
+                            <div className="text-sm text-muted-foreground text-center py-2">
+                              لا توجد تصنيفات خاصة لهذا النوع من المحتوى
+                            </div>
+                          )
+                        }
+                      } else {
+                        // Fallback to original logic
+                        if (contentTypeCategories[type._id] && contentTypeCategories[type._id].length > 0) {
+                          return (
+                            <div className="space-y-1">
+                              {contentTypeCategories[type._id].map((category) => (
+                                <div key={category._id} className="flex items-center justify-between text-sm p-2 bg-white rounded border">
+                                  <span>{category.label}</span>
+                                  <span className="text-xs text-muted-foreground">({category.name})</span>
+                                </div>
+                              ))}
+                            </div>
+                          )
+                        } else {
+                          return (
+                            <div className="text-sm text-muted-foreground text-center py-2">
+                              لا توجد تصنيفات خاصة لهذا النوع من المحتوى
+                            </div>
+                          )
+                        }
+                      }
+                    })()}
+                  </div>
+                )}
               </div>
             ))}
 

@@ -1,3 +1,4 @@
+import { Suspense } from "react"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
@@ -6,7 +7,9 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 export default function CopyrightPage() {
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
-      <Navbar />
+      <Suspense fallback={<div>Loading...</div>}>
+        <Navbar />
+      </Suspense>
       <main className="flex-1 container py-8">
         <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden max-w-4xl mx-auto">
           <CardHeader className="bg-vintage-paper-dark/10 border-b border-vintage-border">

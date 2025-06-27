@@ -1,14 +1,29 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getCategories, createCategory } from "@/backend/lib/db"
+import { getCategories, createCategory, getDefaultCategories, getCategoriesByContentType, getCategoriesWithCounts } from "@/backend/lib/db"
 import { getServerSession } from "next-auth"
 
-// GET /api/categories - Get categories (optionally filtered by content type)
+// GET /api/categories - Get categories (optionally filtered by content type or default)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const contentTypeId = searchParams.get("contentTypeId")
+    const defaultOnly = searchParams.get("default")
+    const excludeDefault = searchParams.get("excludeDefault")
+    const withCounts = searchParams.get("withCounts") === "true"
 
-    const categories = await getCategories(contentTypeId || undefined)
+    let categories
+    if (defaultOnly === "true") {
+      categories = await getDefaultCategories()
+    } else if (excludeDefault === "true" && contentTypeId) {
+      // Only return categories specific to the content type, excluding default categories
+      categories = await getCategoriesByContentType(contentTypeId)
+    } else if (withCounts) {
+      // Return categories with content counts
+      categories = await getCategoriesWithCounts(contentTypeId || undefined)
+    } else {
+      categories = await getCategories(contentTypeId || undefined)
+    }
+    
     return NextResponse.json(categories)
   } catch (error) {
     console.error("Error fetching categories:", error)
@@ -31,6 +46,25 @@ export async function POST(request: NextRequest) {
     // Validate required fields
     if (!data.name || !data.label) {
       return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    }
+
+    // Check for duplicate categories - only among non-default categories for this content type
+    const existingCategories = await getCategoriesByContentType(data.contentTypeId)
+    const duplicateName = existingCategories.find(cat => cat.name === data.name)
+    const duplicateLabel = existingCategories.find(cat => cat.label === data.label)
+
+    if (duplicateName) {
+      return NextResponse.json({ 
+        error: "تصنيف موجود بالفعل", 
+        details: `يوجد تصنيف بنفس المعرف "${data.name}"` 
+      }, { status: 409 })
+    }
+
+    if (duplicateLabel) {
+      return NextResponse.json({ 
+        error: "تصنيف موجود بالفعل", 
+        details: `يوجد تصنيف بنفس الاسم "${data.label}"` 
+      }, { status: 409 })
     }
 
     const category = await createCategory({

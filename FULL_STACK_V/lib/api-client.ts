@@ -8,12 +8,6 @@ export async function getContentTypes() {
 }
 
 
-/*export async function getAttributes() {
-  const response = await fetch("/api/categories")
-  if (!response.ok) throw new Error("Failed to fetch attributes")
-  return response.json() // Returns [{ id: string, label: string, count: number }, ...]
-}*/
-
 export async function createContentType(data: { name: string; label: string; icon: string }) {
   const res = await fetch("/api/content-types", {
     method: "POST",
@@ -194,6 +188,16 @@ export async function updateCommentStatus(id: string, status: "approved" | "reje
   return res.json()
 }
 
+export async function updateCommentContent(id: string, content: string) {
+  const res = await fetch(`/api/comments/${id}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ content }),
+  })
+  if (!res.ok) throw new Error("Failed to update comment content")
+  return res.json()
+}
+
 export async function deleteComment(id: string) {
   const res = await fetch(`/api/comments/${id}`, {
     method: "DELETE",
@@ -216,6 +220,30 @@ export async function toggleLike(contentId: string) {
 export async function checkLikeStatus(contentId: string) {
   const res = await fetch(`/api/likes?contentId=${contentId}`)
   if (!res.ok) throw new Error("Failed to check like status")
+  return res.json()
+}
+
+// comment-Likes
+// to add or remove like to a comment
+export async function toggleCommentLike(commentId: string) {
+  const res = await fetch("/api/comment-likes", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ commentId }),
+  })
+  if (!res.ok) throw new Error("Failed to toggle like")
+  return res.json()
+}
+// to check if it liked by user
+export async function checkCommentLikeStatus(contentId: string) {
+  const res = await fetch(`/api/comment-likes?contentId=${contentId}`)
+  if (!res.ok) throw new Error("Failed to check like status")
+  return res.json()
+}
+
+export async function checkBookmarkStatus(contentId: string) {
+  const res = await fetch(`/api/bookmarks?contentId=${contentId}`)
+  if (!res.ok) throw new Error("Failed to check bookmark status")
   return res.json()
 }
 
@@ -263,7 +291,7 @@ export async function deactivateUserStatus(status: boolean) {
 
 
 export async function updateUser(id: string, data: Partial<User>) {
-  const res = await fetch(`/profile/${id}`, {
+  const res = await fetch(`/api/profile/${id}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(data),
@@ -284,14 +312,13 @@ export async function getDashboard() {
   });
   if (!res.ok) {
     const error = await res.json();
-    throw new Error(error.error || 'Failed to GET users');
+    throw new Error(error.error || 'Failed to fetch dashboard data');
   }
   return res.json();
-	
 }
 
 export async function deleteUser(id: string) {
-  const res = await fetch(`/profile/${id}`, {
+  const res = await fetch(`/api/profile/${id}`, {
     method: 'DELETE',
     credentials: 'include',
   });
@@ -306,7 +333,7 @@ export async function deleteUser(id: string) {
 
 export async function updateAvatar(id: string, formData: FormData) {
 	try{
-		const res = await fetch(`/profile/${id}`, {
+		const res = await fetch(`/api/profile/${id}`, {
 			method: 'POST',
 			body: formData,
 			credentials: 'include', // Include cookies for next-auth
@@ -320,4 +347,91 @@ export async function updateAvatar(id: string, formData: FormData) {
     console.error('Error in updateAvatar:', error);
     throw error;
   }
+}
+
+export async function getUserById(id: string) {
+  const res = await fetch(`/api/profile/${id}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to fetch user');
+  }
+  return res.json();
+}
+
+export async function updateEmailNotifications(id: string, emailNotifications: {
+  newsletter: boolean
+}) {
+  const res = await fetch(`/api/profile/${id}/notifications`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ emailNotifications }),
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to update email notifications');
+  }
+  return res.json();
+}
+
+export async function getContentAnalytics() {
+  const res = await fetch(`/api/analytics/content`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to fetch content analytics');
+  }
+  return res.json();
+}
+
+export async function getUserAnalytics() {
+  const res = await fetch(`/api/analytics/users`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to fetch user analytics');
+  }
+  return res.json();
+}
+
+export async function getEngagementAnalytics() {
+  const res = await fetch(`/api/analytics/engagement`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to fetch engagement analytics');
+  }
+  return res.json();
+}
+
+export async function exportDashboardReport(format: 'pdf' | 'csv' | 'json' = 'json') {
+  const res = await fetch(`/api/dashboard/export?format=${format}`, {
+    method: 'GET',
+    headers: { 'Content-Type': 'application/json' },
+    credentials: 'include',
+  });
+  if (!res.ok) {
+    const error = await res.json();
+    throw new Error(error.error || 'Failed to export dashboard report');
+  }
+  return res.json();
+}
+
+export async function getRelatedContent(contentId: string, limit: number = 6) {
+  const res = await fetch(`/api/related-content?contentId=${contentId}&limit=${limit}`)
+  if (!res.ok) throw new Error("Failed to fetch related content")
+  return res.json()
 }

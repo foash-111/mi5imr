@@ -24,7 +24,7 @@ import {
   YoutubeIcon,
 } from "lucide-react"
 import { useState, useRef } from "react"
-import { uploadToFalStorage } from "@/lib/upload-utils"
+import { uploadToFalStorageClient } from "@/lib/upload-utils"
 import { useToast } from "@/hooks/use-toast"
 
 interface RichTextEditorProps {
@@ -67,7 +67,9 @@ export function RichTextEditor({ content, onChange, placeholder = "ابدأ ال
     },
     editorProps: {
       attributes: {
-        class: "prose prose-lg max-w-none focus:outline-none min-h-[300px] rtl:text-right",
+        class: "prose prose-lg max-w-none focus:outline-none min-h-[300px] rtl:text-right text-right direction-rtl",
+        dir: "rtl",
+        lang: "ar",
       },
     },
   })
@@ -87,7 +89,7 @@ export function RichTextEditor({ content, onChange, placeholder = "ابدأ ال
 
     try {
       setIsUploading(true)
-      const imageUrl = await uploadToFalStorage(file)
+      const imageUrl = await uploadToFalStorageClient(file)
 
       editor.chain().focus().setImage({ src: imageUrl }).run()
 
@@ -358,8 +360,56 @@ export function RichTextEditor({ content, onChange, placeholder = "ابدأ ال
         </Button>
       </div>
       <div className="p-4">
-        <EditorContent editor={editor} />
+        <EditorContent 
+          editor={editor} 
+          className="[&_.ProseMirror]:text-right [&_.ProseMirror]:direction-rtl [&_.ProseMirror]:text-align-right [&_.ProseMirror_p]:text-right [&_.ProseMirror_h1]:text-right [&_.ProseMirror_h2]:text-right [&_.ProseMirror_h3]:text-right [&_.ProseMirror_li]:text-right [&_.ProseMirror_blockquote]:text-right [&_.ProseMirror]:font-family-['Noto_Naskh_Arabic',_serif]"
+        />
       </div>
+      <style jsx>{`
+        .ProseMirror {
+          direction: rtl !important;
+          text-align: right !important;
+          font-family: 'Noto Naskh Arabic', serif !important;
+        }
+        .ProseMirror p {
+          text-align: right !important;
+          direction: rtl !important;
+        }
+        .ProseMirror h1,
+        .ProseMirror h2,
+        .ProseMirror h3,
+        .ProseMirror h4,
+        .ProseMirror h5,
+        .ProseMirror h6 {
+          text-align: right !important;
+          direction: rtl !important;
+        }
+        .ProseMirror ul,
+        .ProseMirror ol {
+          text-align: right !important;
+          direction: rtl !important;
+          padding-right: 1.5em !important;
+          padding-left: 0 !important;
+        }
+        .ProseMirror li {
+          text-align: right !important;
+          direction: rtl !important;
+        }
+        .ProseMirror blockquote {
+          text-align: right !important;
+          direction: rtl !important;
+          border-right: 3px solid #e5e7eb !important;
+          border-left: none !important;
+          padding-right: 1em !important;
+          padding-left: 0 !important;
+          margin-right: 0 !important;
+          margin-left: 0 !important;
+        }
+        .ProseMirror::placeholder {
+          text-align: right !important;
+          direction: rtl !important;
+        }
+      `}</style>
     </div>
   )
 }

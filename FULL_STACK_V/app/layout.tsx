@@ -4,6 +4,7 @@ import type { Metadata } from "next"
 import { Cairo } from "next/font/google"
 import "./globals.css"
 import SessionProviders from "./SessionProviders"
+import NotificationPollingClient from "@/components/notification-polling-client"
 
 
 // Cairo font for Arabic UI
@@ -27,9 +28,10 @@ export default function RootLayout({
   return (
     <html lang="ar" dir="rtl" suppressHydrationWarning>
       <body className={`${cairo.variable} font-sans bg-vintage-paper min-h-screen`}>
-			<SessionProviders> {/* Add this line */}
+        <SessionProviders>
+          <NotificationPollingClient />
           {children}
-		  </SessionProviders> {/* Add this line */}
+        </SessionProviders>
       </body>
     </html>
   )

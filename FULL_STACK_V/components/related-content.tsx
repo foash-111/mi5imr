@@ -4,29 +4,33 @@ import { useState, useEffect } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { BookOpen, FileText, Music, Video, Mic, Coffee, Loader2, AlertCircle } from "lucide-react"
+import { BookOpen, FileText, Music, Video, Mic, Coffee, Loader2, AlertCircle, TrendingUp, Clock, User } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
-import { getContent } from "@/lib/api-client"
+import { getRelatedContent } from "@/lib/api-client"
 
-export function RelatedContent({ slug }: { slug: string }) {
+interface RelatedContentProps {
+  slug: string
+  contentId?: string
+}
+
+export function RelatedContent({ slug, contentId }: RelatedContentProps) {
   const [relatedContent, setRelatedContent] = useState<any[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
     async function fetchRelatedContent() {
+      if (!contentId) {
+        setIsLoading(false)
+        return
+      }
+
       setIsLoading(true)
       setError(null)
       try {
-        // In a real app, you would have a dedicated API endpoint for related content
-        // For now, we'll just fetch the latest content
-        const data = await getContent({ limit: 3 })
-
-        // Filter out the current content
-        const filtered = data.filter((item: any) => item.slug !== slug)
-
-        setRelatedContent(filtered.slice(0, 3))
+        const data = await getRelatedContent(contentId, 6)
+        setRelatedContent(data)
       } catch (err) {
         console.error("Error fetching related content:", err)
         setError("Failed to load related content")
@@ -36,39 +40,84 @@ export function RelatedContent({ slug }: { slug: string }) {
     }
 
     fetchRelatedContent()
-  }, [slug])
+  }, [contentId])
 
   const getIconForType = (type: string) => {
     switch (type) {
       case "articles":
       case "مقالات":
-        return FileText
+        return <FileText className="h-3 w-3 mr-1" />
       case "stories":
       case "حواديت":
-        return BookOpen
+        return <BookOpen className="h-3 w-3 mr-1" />
       case "poetry":
       case "شعر":
-        return Music
+        return <Music className="h-3 w-3 mr-1" />
       case "cinema":
       case "سينما":
-        return Video
+        return <Video className="h-3 w-3 mr-1" />
       case "reflections":
       case "تأملات":
-        return Coffee
+        return <Coffee className="h-3 w-3 mr-1" />
       case "podcasts":
       case "بودكاست":
-        return Mic
+        return <Mic className="h-3 w-3 mr-1" />
       default:
-        return FileText
+        return <FileText className="h-3 w-3 mr-1" />
     }
+  }
+
+  const getRelevanceBadge = (item: any) => {
+    if (!item.score) return null
+    
+    let relevance = "متوسط"
+    let color = "bg-yellow-500"
+    
+    if (item.score >= 20) {
+      relevance = "عالية جداً"
+      color = "bg-green-600"
+    } else if (item.score >= 15) {
+      relevance = "عالية"
+      color = "bg-green-500"
+    } else if (item.score >= 10) {
+      relevance = "متوسطة"
+      color = "bg-yellow-500"
+    } else if (item.score >= 5) {
+      relevance = "منخفضة"
+      color = "bg-orange-500"
+    } else {
+      relevance = "ضعيفة"
+      color = "bg-gray-500"
+    }
+    
+    return (
+      <Badge className={`${color} text-white text-xs`}>
+        <TrendingUp className="h-3 w-3 mr-1" />
+        {relevance}
+      </Badge>
+    )
+  }
+
+  const getCategoryBadge = (item: any) => {
+    if (!item.categories || item.categories.length === 0) return null
+    
+    const primaryCategory = item.categories[0]
+    return (
+      <Badge variant="outline" className="border-vintage-border bg-vintage-paper-dark/5 text-xs">
+        {primaryCategory.label}
+      </Badge>
+    )
   }
 
   // If loading, show loading spinner
   if (isLoading) {
     return (
-      <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mb-8">
+      <Card className="border-vintage-border backdrop-blur-sm overflow-hidden mb-8">
         <CardHeader>
-          <CardTitle>محتوى ذو صلة</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-vintage-accent" />
+            محتوى ذو صلة
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center justify-center py-8">
@@ -83,9 +132,12 @@ export function RelatedContent({ slug }: { slug: string }) {
   // If error, show error message
   if (error) {
     return (
-      <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mb-8">
+      <Card className="border-vintage-border backdrop-blur-sm overflow-hidden mb-8">
         <CardHeader>
-          <CardTitle>محتوى ذو صلة</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-vintage-accent" />
+            محتوى ذو صلة
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-4">
@@ -100,9 +152,12 @@ export function RelatedContent({ slug }: { slug: string }) {
   // If no related content
   if (relatedContent.length === 0) {
     return (
-      <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mb-8">
+      <Card className="border-vintage-border backdrop-blur-sm overflow-hidden mb-8">
         <CardHeader>
-          <CardTitle>محتوى ذو صلة</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-vintage-accent" />
+            محتوى ذو صلة
+          </CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-center py-4">
@@ -114,42 +169,55 @@ export function RelatedContent({ slug }: { slug: string }) {
   }
 
   return (
-    <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mb-8">
+    <Card className="border-vintage-border backdrop-blur-sm overflow-hidden mb-8">
       <CardHeader>
-        <CardTitle>محتوى ذو صلة</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          <TrendingUp className="h-5 w-5 text-vintage-accent" />
+          محتوى ذو صلة
+        </CardTitle>
       </CardHeader>
       <CardContent>
         <div className="space-y-4">
           {relatedContent.map((item) => {
-            const ItemIcon = getIconForType(item.contentType.name)
+            const ItemIcon = getIconForType(item.contentType?.name || "articles")
 
             return (
-              <div key={item._id} className="flex gap-3 pb-4 border-b border-vintage-border last:border-0 last:pb-0">
-                {item.coverImage && (
-                  <div className="relative h-16 w-16 rounded-md overflow-hidden flex-shrink-0">
-                    <Image src={item.coverImage || "/placeholder.svg"} alt={item.title} fill className="object-cover" />
-                  </div>
-                )}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1 mb-1">
-                    <Badge className="bg-vintage-accent/90 hover:bg-vintage-accent text-white text-xs py-0">
-                      <ItemIcon className="h-3 w-3 mr-1" />
-                      {item.contentType.label}
-                    </Badge>
-                  </div>
-                  <Link href={`/content/${item.slug}`}>
-                    <h3 className="font-medium text-sm mb-1 hover:text-vintage-accent transition-colors line-clamp-2">
-                      {item.title}
-                    </h3>
-                  </Link>
-                  <div className="flex items-center gap-2">
-                    <Avatar className="h-5 w-5 border border-vintage-border">
-                      <AvatarImage src={item.author.avatar || "/placeholder.svg"} alt={item.author.name} />
-                      <AvatarFallback className="bg-vintage-paper-dark text-white text-xs">
-                        {item.author.name.substring(0, 2)}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="text-xs text-muted-foreground truncate">{item.author.name}</span>
+              <div key={item._id} className="pb-4 border-b border-vintage-border last:border-0 last:pb-0">
+                <div className="flex gap-3">
+                  {item.coverImage && (
+                    <div className="relative h-16 w-16 rounded-md overflow-hidden flex-shrink-0">
+                      <Image src={item.coverImage || "/placeholder.svg"} alt={item.title} fill className="object-cover" />
+                    </div>
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1 mb-1 flex-wrap">
+                      <Badge className="bg-vintage-accent/90 hover:bg-vintage-accent text-white text-xs py-0">
+                        {ItemIcon}
+                        {item.contentType?.label || "غير محدد"}
+                      </Badge>
+                      {getCategoryBadge(item)}
+                      {getRelevanceBadge(item)}
+                    </div>
+                    <Link href={`/content/${item.slug}`}>
+                      <h3 className="font-medium text-sm mb-1 hover:text-vintage-accent transition-colors line-clamp-2">
+                        {item.title}
+                      </h3>
+                    </Link>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <div className="flex items-center gap-1">
+                        <User className="h-3 w-3" />
+                        <span className="truncate">{item.author?.name || "غير محدد"}</span>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <Clock className="h-3 w-3" />
+                        <span>{new Date(item.createdAt).toLocaleDateString("ar-EG")}</span>
+                      </div>
+                    </div>
+                    {item.excerpt && (
+                      <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
+                        {item.excerpt}
+                      </p>
+                    )}
                   </div>
                 </div>
               </div>

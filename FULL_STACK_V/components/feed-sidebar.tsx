@@ -23,6 +23,20 @@ import {
   Clock,
   Flame,
   X,
+  Heart,
+  Leaf,
+  Lightbulb,
+  Users,
+  MessageSquare,
+  Star,
+  TrendingUp,
+  Sparkles,
+  Newspaper,
+  PenTool,
+  Camera,
+  Headphones,
+  Film,
+  Feather,
 } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
 
@@ -41,28 +55,74 @@ const sortOptions = [
   { id: "trending", label: "الأكثر رواجاً", icon: Flame },
 ]
 
+// Icon mapping for content types (admin-chosen icons)
+const ICON_COMPONENTS = {
+  FileText,
+  BookOpen,
+  Music,
+  Video,
+  Coffee,
+  Mic,
+  Newspaper,
+  PenTool,
+  Camera,
+  Headphones,
+  Film,
+  Feather,
+}
 
 interface FeedSidebarProps {
-  contentTypes: { id: string; label: string; count: number }[]
+  contentTypes: { id: string; label: string; count: number; _id?: string; icon?: string }[]
   attributes: { id: string; label: string; count: number }[]
+  selectedTypes?: string[]
+  allCategories?: { id: string; label: string; count: number; contentTypeId?: string; isDefault: boolean }[]
 }
 
-const getIconForType = (id: string) => {
-  const iconMap: { [key: string]: any } = {
-    articles: FileText,
-    stories: BookOpen,
-    poetry: Music,
-    cinema: Video,
-    reflections: Coffee,
-    podcasts: Mic,
-    drama: Drama,
-    comedy: Smile,
-    'self-development': Brain,
+const getIconForType = (label: string, iconName?: string) => {
+  // If we have an admin-chosen icon, use it
+  if (iconName && ICON_COMPONENTS[iconName as keyof typeof ICON_COMPONENTS]) {
+    return ICON_COMPONENTS[iconName as keyof typeof ICON_COMPONENTS]
   }
-  return iconMap[id] || FileText
+
+  // Fallback to hardcoded mapping for categories and legacy content types
+  const iconMap: { [key: string]: any } = {
+    // Content Types (fallback)
+    "مقالات": FileText,        // Articles - Document icon
+    "حواديت": BookOpen,        // Stories - Book icon
+    "شعر": Heart,              // Poetry - Heart icon (for love/emotion)
+    "سينما": Video,            // Cinema - Video icon
+    "تأملات": Lightbulb,       // Reflections - Lightbulb icon (for wisdom/insights)
+    "بودكاست": Mic,            // Podcasts - Microphone icon
+    
+    // Categories
+    "دراما": Drama,            // Drama
+    "كوميدي": Smile,           // Comedy
+    "تطوير ذات": Brain,        // Self Development
+    "مغامرة": TrendingUp,      // Adventure
+    "رومانسي": Heart,          // Romance
+    "غموض": Sparkles,          // Mystery
+    "حب": Heart,               // Love
+    "طبيعة": Leaf,             // Nature
+    "فلسفة": Lightbulb,        // Philosophy
+    "أكشن": Flame,             // Action
+    "وثائقي": FileText,        // Documentary
+    "كلاسيكي": Star,           // Classic
+    "روحانيات": Sparkles,      // Spirituality
+    "وعي": Brain,              // Mindfulness
+    "حكمة": Lightbulb,         // Wisdom
+    "مقابلات": Users,          // Interviews
+    "مناقشات": MessageSquare,  // Discussions
+    "قصص": BookOpen,           // Stories (podcast category)
+    
+    // Default Categories
+    "مميز": Star,              // Featured
+    "رائج": TrendingUp,        // Trending
+    "جديد": Sparkles,          // New
+  }
+  return iconMap[label] || FileText
 }
 
-export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
+export function FeedSidebar({ contentTypes, attributes, selectedTypes: initialSelectedTypes, allCategories }: FeedSidebarProps) {
 	//console.log("side feed content types",contentTypes, "attr",attributes)
   const { toast } = useToast()
   const router = useRouter()
@@ -77,14 +137,59 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
   const [contentTypeSearch, setContentTypeSearch] = useState("")
   const [attributeSearch, setAttributeSearch] = useState("")
 
+  // Dynamic category filtering based on selected content types
+  const dynamicAttributes = useMemo(() => {
+    if (!allCategories || allCategories.length === 0) {
+      return attributes
+    }
+
+    // Scenario 1: When no content types are selected - show only default categories
+    if (selectedTypes.length === 0) {
+      const defaultCategories = allCategories
+        .filter(cat => cat.isDefault)
+        .map(cat => ({
+          id: cat.id,
+          label: cat.label,
+          count: cat.count
+        }))
+      return defaultCategories
+    }
+
+    // Scenario 2: When one or more content types are selected
+    // Get content type IDs for selected types
+    const selectedTypeIds = contentTypes
+      .filter(type => selectedTypes.includes(type.id))
+      .map(type => (type as any)._id) // Use the database _id
+
+    // Show only categories associated with the selected content types (hide defaults)
+    const contentTypeCategories = allCategories.filter(cat => 
+      !cat.isDefault && selectedTypeIds.includes(cat.contentTypeId)
+    )
+
+    // Remove duplicates by label (show only unique category names)
+    const uniqueCategories = contentTypeCategories.reduce((acc, cat) => {
+      const existing = acc.find(existingCat => existingCat.label === cat.label)
+      if (!existing) {
+        acc.push(cat)
+      }
+      return acc
+    }, [] as typeof contentTypeCategories)
+
+    return uniqueCategories.map(cat => ({
+      id: cat.id,
+      label: cat.label,
+      count: cat.count
+    }))
+  }, [allCategories, selectedTypes, contentTypes, attributes])
+
  const filteredContentTypes = useMemo(
     () => contentTypes.filter(type => type.label.toLowerCase().includes(contentTypeSearch.toLowerCase())),
     [contentTypes, contentTypeSearch]
   )
 
   const filteredAttributes = useMemo(
-    () => attributes.filter(attr => attr.label.toLowerCase().includes(attributeSearch.toLowerCase())),
-    [attributes, attributeSearch]
+    () => dynamicAttributes.filter(attr => attr.label.toLowerCase().includes(attributeSearch.toLowerCase())),
+    [dynamicAttributes, attributeSearch]
   )
 
   // Initialize from URL params
@@ -95,22 +200,29 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
     const q = searchParams.get("q") || ""
     const sort = searchParams.get("sort") || "newest"
 
-    //setSelectedTypes(type.filter((t) => contentTypes.some((ct) => ct.id === t)))
-
-		setSelectedTypes(type.filter((t) => contentTypes.some((ct) => ct.id === t)))
-    setSelectedAttributes(attr.filter((attr) => attributes.some((a) => a.id === attr)))
+    // For content types, we need to match by label since URL uses content type names
+    setSelectedTypes(type.filter((t) => contentTypes.some((ct) => ct.label === t)))
+    
+    // For attributes, we need to match by the new id structure (database _id)
+    setSelectedAttributes(attr.filter((attrId) => attributes.some((a) => a.id === attrId)))
     setSelectedTimeFilter(timeFilters.some((t) => t.id === time) ? time : null)
     setSearchQuery(q)
     setSelectedSort(sortOptions.some((s) => s.id === sort) ? sort : "newest")
-  }, [searchParams])
+  }, [searchParams, contentTypes, attributes])
 
   // Update URL on filter changes
   useEffect(() => {
     const params = new URLSearchParams()
     if (selectedTypes.length > 0) {
-      params.set("type", selectedTypes.join(","))
+      // Use content type labels for URL parameters
+      const typeLabels = selectedTypes.map(typeId => {
+        const contentType = contentTypes.find(ct => ct.id === typeId)
+        return contentType ? contentType.label : typeId
+      })
+      params.set("type", typeLabels.join(","))
     }
     if (selectedAttributes.length > 0) {
+      // Use the new id structure (database _id) for attributes
       params.set("attributes", selectedAttributes.join(","))
     }
     if (selectedTimeFilter) {
@@ -124,7 +236,7 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
     }
     const queryString = params.toString()
     router.push(queryString ? `/feed?${queryString}` : "/feed")
-  }, [selectedTypes, selectedAttributes, selectedTimeFilter, searchQuery, selectedSort, router])
+  }, [selectedTypes, selectedAttributes, selectedTimeFilter, searchQuery, selectedSort, router, contentTypes])
 
   const handleTypeChange = (id: string) => {
     setSelectedTypes((prev) =>
@@ -260,6 +372,10 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
             variant="secondary"
             className="bg-vintage-paper-dark/10 hover:bg-vintage-paper-dark/20"
           >
+            {(() => {
+              const Icon = getIconForType(type.label, type.icon)
+              return <Icon className="h-3 w-3 ml-1" />
+            })()}
             {type.label}
             <button
               className="mr-1 hover:text-vintage-accent"
@@ -279,6 +395,10 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
             variant="secondary"
             className="bg-vintage-paper-dark/10 hover:bg-vintage-paper-dark/20"
           >
+            {(() => {
+              const Icon = getIconForType(attr.label)
+              return <Icon className="h-3 w-3 ml-1" />
+            })()}
             {attr.label}
             <button
               className="mr-1 hover:text-vintage-accent"
@@ -343,7 +463,7 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
           </div>
           <div className="space-y-2">
 						{filteredContentTypes.map((type) => {
-              const Icon = getIconForType(type.id) // Get the icon component
+              const Icon = getIconForType(type.label, type.icon) // Get the icon component
               return (
                 <div key={type.id} className="flex items-center justify-between space-x-2 space-x-reverse">
                   <div className="flex items-center space-x-2 space-x-reverse">
@@ -377,7 +497,23 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
         <Separator className="my-4 bg-vintage-border" />
 
         <div className="mb-4">
-          <h3 className="font-medium mb-2">التصنيفات</h3>
+          <h3 className="font-medium mb-2">
+            التصنيفات
+            {selectedTypes.length > 0 ? (
+              <span className="text-xs text-muted-foreground font-normal mr-2">
+                (مفلترة حسب الأنواع المحددة)
+              </span>
+            ) : (
+              <span className="text-xs text-muted-foreground font-normal mr-2">
+                (التصنيفات الافتراضية)
+              </span>
+            )}
+          </h3>
+          {selectedTypes.length === 0 && (
+            <p className="text-xs text-muted-foreground mb-2">
+              اختر نوع محتوى لعرض تصنيفاته الخاصة
+            </p>
+          )}
           <div className="relative mb-2">
             <Search className="absolute left-2 top-2.5 h-4 w-4 text-muted-foreground" />
             <Input
@@ -414,7 +550,10 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
                     htmlFor={`attr-${attr.id}`}
                     className="flex items-center gap-2 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                   >
-                    {/*<attr.icon className="h-4 w-4" />*/}
+                    {(() => {
+                      const Icon = getIconForType(attr.label)
+                      return <Icon className="h-4 w-4" />
+                    })()}
                     {attr.label}
                   </label>
                 </div>
@@ -425,6 +564,11 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
             ))}
             {filteredAttributes.length === 0 && attributeSearch && (
               <div className="text-center text-sm text-muted-foreground">لا توجد تصنيفات مطابقة</div>
+            )}
+            {filteredAttributes.length === 0 && !attributeSearch && selectedTypes.length > 0 && (
+              <div className="text-center text-sm text-muted-foreground">
+                لا توجد تصنيفات متاحة للأنواع المحددة
+              </div>
             )}
           </div>
         </div>
@@ -448,6 +592,7 @@ export function FeedSidebar({ contentTypes, attributes}: FeedSidebarProps) {
                 }
                 aria-label={`تصفية حسب ${filter.label}`}
               >
+                <Clock className="h-3 w-3 ml-1" />
                 {filter.label}
               </Button>
             ))}

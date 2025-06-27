@@ -11,12 +11,12 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
-import { BookOpen, FileText, Heart, Bookmark, Settings, Upload, LogOut, Coffee, Video, Mic } from "lucide-react"
+import { BookOpen, FileText, Heart, Bookmark, Settings, Upload, LogOut, Coffee, Video, Mic, Pencil, Trash } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
-import { updateUser, deleteUser, updateAvatar, getUserBookmarks, getUserLikes } from "@/lib/api-client"
+import { updateUser, deleteUser, updateAvatar, getUserBookmarks, getUserLikes, getContent, getUserById, updateEmailNotifications } from "@/lib/api-client"
 import { deactivateUserStatus } from "@/lib/api-client"
 
 // Add these imports at the top of the file
@@ -33,10 +33,36 @@ import {
   AlertCircle,
   CheckCircle,
   Clock,
+  Bell,
+  Mail,
 } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 import { Badge } from "@/components/ui/badge"
-import { Content } from "@/backend/models/types"
+import { Content as OriginalContent } from "@/backend/models/types"
+import { Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
+
+// Extend Content type to include 'views', 'likes', and 'comments' if not already present
+type Content = OriginalContent & {
+  views?: number
+  likes?: number
+  comments?: number
+  status?: string // Add status property to fix the error
+  image?: string // Add image property to fix the error
+  icon?: React.ElementType // Add icon property to fix the error
+}
+
+// Helper function to format date to dd-mm-yyyy
+const formatDate = (dateString: string) => {
+  try {
+    const date = new Date(dateString);
+    const day = date.getDate().toString().padStart(2, '0');
+    const month = (date.getMonth() + 1).toString().padStart(2, '0');
+    const year = date.getFullYear();
+    return `${day}-${month}-${year}`;
+  } catch (error) {
+    return dateString; // Return original if parsing fails
+  }
+};
 
 // const publishedContent = [
 //   {
@@ -121,7 +147,10 @@ export function UserProfile() {
     avatar: "",
     bio: "",
     createdAt: "",
-    isAdmin: false,	
+    isAdmin: false,
+    emailNotifications: {
+      newsletter: true,
+    }
   });
   const [name, setName] = useState('')
   const [bio, setBio] = useState('')
@@ -131,9 +160,16 @@ export function UserProfile() {
   const [likedContent, setLikedContent] = useState<Content[]>([])
   const [savedContent, setSavedContent] = useState<Content[]>([])
 	const [isLoading, setIsLoading] = useState(false)
+  const [isUpdatingProfile, setIsUpdatingProfile] = useState(false)
+  const [emailNotifications, setEmailNotifications] = useState({
+    newsletter: true,
+  })
 
 	const [publishedContent, setPublishedContent] = useState<Content[]>([])
+	const [draftContent, setDraftContent] = useState<Content[]>([])
 
+	const [savedOpen, setSavedOpen] = useState(false)
+	const [likedOpen, setLikedOpen] = useState(false)
 
 	// Fetch user data when session is authenticated
 
@@ -145,46 +181,52 @@ export function UserProfile() {
 }, [status, router]);
 
 	useEffect(() => {
-    if (status === "authenticated" && session?.user) {
-      // Simulate fetching additional user data (e.g., from your database)
-      // For now, combine session data with defaults
-     const loadedUser = {
-        name: session.user.name || "مستخدم غير معروف",
-        username: session.user.username || "user",
-        email: session.user.email || "لا يوجد بريد إلكتروني",
-        avatar: session.user.avatar || "/placeholder.svg",
-        bio: session.user.bio || "لا توجد نبذة شخصية",
-        createdAt: session.user.createdAt || "لا يوجد تاريخ",
-        isAdmin: session.user.isAdmin || false,
-      };
-			console.log("userloader", loadedUser)
-
-      setUserData(loadedUser);
-      setName(loadedUser.name);
-      setBio(loadedUser.bio);
-      setEmail(loadedUser.email);
-      setAvatar(loadedUser.avatar);
-
-			async function fetchContent() {
-						setIsLoading(true)
-						try {
-							const userBookmarks = await getUserBookmarks()
-							console.log("userBookmarks", userBookmarks)
-							const userLikes = await getUserLikes()
-							setLikedContent(userLikes);
-							setSavedContent(userBookmarks);
-							console.log("savedContent length", userBookmarks,  userBookmarks.length)
-							/* setPublishedContent(userPublished); */
-						} catch (err) {
-							console.error("Error fetching content:", err)
-						} finally {
-							setIsLoading(false)
-						}
-					}
-			
-					fetchContent()
-
+    async function fetchAndSetUser() {
+      if (status === "authenticated" && session?.user) {
+        try {
+          // Always fetch the latest user data from backend
+          if (session.user.id) {
+            const latestUser = await getUserById(String(session.user.id));
+            setUserData(latestUser);
+            setName(latestUser.name || "");
+            setBio(latestUser.bio || "");
+            setEmail(latestUser.email || "");
+            setAvatar(latestUser.avatar || "");
+            setEmailNotifications(latestUser.emailNotifications || {
+              newsletter: true,
+            });
+            
+            // Check real newsletter subscription status
+            if (latestUser.email) {
+              const isSubscribed = await checkNewsletterStatus(latestUser.email);
+              setEmailNotifications(prev => ({ ...prev, newsletter: isSubscribed }));
+            }
+            // Fetch content as before
+            async function fetchContent() {
+              setIsLoading(true)
+              try {
+                const userBookmarks = await getUserBookmarks()
+                setLikedContent(await getUserLikes());
+                setSavedContent(userBookmarks);
+                // Fetch draft content for admins
+                if (latestUser.isAdmin) {
+                  const { content: drafts } = await getContent({ published: false, limit: 20 });
+                  setDraftContent(drafts);
+                }
+              } catch (err) {
+                console.error("Error fetching content:", err)
+              } finally {
+                setIsLoading(false)
+              }
+            }
+            fetchContent();
+          }
+        } catch (err) {
+          console.error("Error fetching user:", err);
+        }
+      }
     }
+    fetchAndSetUser();
   }, [session, status]);
 
   const handleAvatarChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -274,19 +316,45 @@ export function UserProfile() {
       return;
     }
 
-    const updatedData = { ...userData, name, bio, email, avatar };
-    setUserData(updatedData);
-		const { createdAt, ...updatedDataWithoutCreatedAt } = { ...userData, name, bio, email, avatar };
-		console.log(updatedDataWithoutCreatedAt)
-     setUserData({ ...userData, name, bio, email, avatar });
+    setIsUpdatingProfile(true);
+    
+    // Show loading toast
+    toast({
+      title: 'جاري التعديل',
+      description: 'يرجى الانتظار...',
+      variant: 'default',
+    });
+
+    const { createdAt, ...updatedDataWithoutCreatedAt } = { ...userData, name, bio, email, avatar };
+    
     try {
       await updateUser(session.user.id, updatedDataWithoutCreatedAt);
+      
+      // Fetch latest user data from backend
+      if (session.user.id) {
+        const latestUser = await getUserById(String(session.user.id));
+        setUserData(latestUser);
+        setBio(latestUser.bio || "");
+        setName(latestUser.name || "");
+        setEmail(latestUser.email || "");
+        setAvatar(latestUser.avatar || "");
+        setEmailNotifications(latestUser.emailNotifications || {
+          newsletter: true,
+        });
+        
+        // Check real newsletter subscription status
+        if (latestUser.email) {
+          const isSubscribed = await checkNewsletterStatus(latestUser.email);
+          setEmailNotifications(prev => ({ ...prev, newsletter: isSubscribed }));
+        }
+      }
+      
       toast({
-        title: 'تم تحديث الملف الشخصي',
+        title: 'تم التحديث بنجاح',
         description: 'تم تحديث الملف الشخصي بنجاح',
         variant: 'default',
       });
-      console.log('Profile updated:', { name, bio, email, avatar });
+      
       setIsEditing(false);
     } catch (error: any) {
       toast({
@@ -294,6 +362,8 @@ export function UserProfile() {
         description: error.message || 'تعذر تحديث الملف الشخصي',
         variant: 'destructive',
       });
+    } finally {
+      setIsUpdatingProfile(false);
     }
   };
   
@@ -343,22 +413,158 @@ export function UserProfile() {
   };
 	
 	const handleLogout = async () => {
-
 		try {
-    // Set the user's active status to false
-    await deactivateUserStatus(false);
-    // Sign out the user without automatic redirect
-    await signOut({ redirect: false });
-    // Redirect to login page
-    router.push('/auth/login');
-  } catch (error) {
-    console.error('Logout failed:', error);
-    // Optionally show a user-friendly error message
-    alert('Failed to log out. Please try again.');
-  }
+			// Try to deactivate user status, but don't let it block logout
+			try {
+				await deactivateUserStatus(false);
+			} catch (statusError) {
+				console.warn('Failed to deactivate user status:', statusError);
+				// Continue with logout even if status update fails
+			}
+			
+			// Sign out the user without automatic redirect
+			await signOut({ redirect: false });
+			
+			// Redirect to login page
+			router.push('/auth/login');
+		} catch (error) {
+			console.error('Logout failed:', error);
+			// Even if there's an error, try to force logout
+			try {
+				await signOut({ redirect: false });
+				router.push('/auth/login');
+			} catch (fallbackError) {
+				console.error('Fallback logout also failed:', fallbackError);
+				// Last resort: reload the page
+				window.location.href = '/auth/login';
+			}
+		}
 	};
 
+  const handleSaveEmailNotifications = async () => {
+    if (!session?.user?.id) {
+      toast({
+        title: 'خطأ',
+        description: 'بيانات المستخدم غير متوفرة',
+        variant: 'destructive',
+      });
+      return;
+    }
 
+    try {
+      await updateEmailNotifications(session.user.id, emailNotifications);
+      toast({
+        title: 'تم الحفظ',
+        description: 'تم حفظ تفضيلات الإشعارات بنجاح',
+        variant: 'default',
+      });
+    } catch (error: any) {
+      toast({
+        title: 'حدث خطأ',
+        description: error.message || 'تعذر حفظ تفضيلات الإشعارات',
+        variant: 'destructive',
+      });
+    }
+  };
+
+  // Check newsletter subscription status
+  const checkNewsletterStatus = async (email: string) => {
+    try {
+      const response = await fetch("/api/newsletter/subscribe/check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email }),
+      });
+      const data = await response.json();
+      return data.subscribed || false;
+    } catch (error) {
+      console.error("Error checking newsletter status:", error);
+      return false;
+    }
+  };
+
+  // Handle newsletter toggle
+  const handleNewsletterToggle = async () => {
+    if (!session?.user?.email) {
+      toast({
+        title: 'خطأ',
+        description: 'بيانات المستخدم غير متوفرة',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const newStatus = !emailNotifications.newsletter;
+    setEmailNotifications(prev => ({ ...prev, newsletter: newStatus }));
+
+    try {
+      if (newStatus) {
+        // Subscribe to newsletter
+        const response = await fetch("/api/newsletter/subscribe", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email: session.user.email }),
+        });
+
+        if (response.ok) {
+          toast({
+            title: 'تم الاشتراك',
+            description: 'تم الاشتراك في النشرة الإخبارية بنجاح',
+            variant: 'default',
+          });
+        } else {
+          const data = await response.json();
+          if (data.error === "Email already subscribed") {
+            toast({
+              title: 'مشترك بالفعل',
+              description: 'أنت مشترك بالفعل في النشرة الإخبارية',
+              variant: 'default',
+            });
+          } else {
+            throw new Error(data.error || 'فشل في الاشتراك');
+          }
+        }
+      } else {
+        // Unsubscribe from newsletter
+        const response = await fetch("/api/newsletter/unsubscribe/user", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+        });
+
+        if (response.ok) {
+          toast({
+            title: 'تم إلغاء الاشتراك',
+            description: 'تم إلغاء الاشتراك في النشرة الإخبارية',
+            variant: 'default',
+          });
+        } else {
+          const data = await response.json();
+          if (data.error === "Not subscribed to newsletter") {
+            toast({
+              title: 'غير مشترك',
+              description: 'أنت غير مشترك في النشرة الإخبارية',
+              variant: 'default',
+            });
+          } else {
+            throw new Error(data.error || 'فشل في إلغاء الاشتراك');
+          }
+        }
+      }
+
+      // Update user preferences in database
+      if (session.user.id) {
+        await updateEmailNotifications(session.user.id, { newsletter: newStatus });
+      }
+    } catch (error: any) {
+      // Revert the state on error
+      setEmailNotifications(prev => ({ ...prev, newsletter: !newStatus }));
+      toast({
+        title: 'حدث خطأ',
+        description: error.message || 'تعذر تحديث حالة الاشتراك',
+        variant: 'destructive',
+      });
+    }
+  };
 
   return (
     <div className="space-y-8">
@@ -380,7 +586,7 @@ export function UserProfile() {
               <div>
                 <h2 className="text-2xl font-bold">{userData.name}</h2>
                 <p className="text-muted-foreground">@{userData.username}</p>
-                <p className="text-sm text-muted-foreground mt-1">عضو منذ {userData.createdAt}</p>
+                <p className="text-sm text-muted-foreground mt-1">عضو منذ {formatDate(userData.createdAt)}</p>
               </div>
               <Button variant="outline" className="border-vintage-border" onClick={() => setIsEditing(!isEditing)}>
                 <Settings className="h-4 w-4 ml-2" />
@@ -440,11 +646,17 @@ export function UserProfile() {
                 <div className="flex gap-2 pt-4">
                   <Button
                     onClick={handleSaveProfile}
+                    disabled={isUpdatingProfile}
                     className="bg-vintage-accent hover:bg-vintage-accent/90 text-white"
                   >
-                    حفظ التغييرات
+                    {isUpdatingProfile ? "جاري الحفظ..." : "حفظ التغييرات"}
                   </Button>
-                  <Button variant="outline" className="border-vintage-border" onClick={() => setIsEditing(false)}>
+                  <Button 
+                    variant="outline" 
+                    className="border-vintage-border" 
+                    onClick={() => setIsEditing(false)}
+                    disabled={isUpdatingProfile}
+                  >
                     إلغاء
                   </Button>
                 </div>
@@ -458,106 +670,114 @@ export function UserProfile() {
         </CardContent>
       </Card>
 
-      <Tabs defaultValue="saved" className="w-full">
-        <TabsList className="w-full bg-vintage-paper-dark/10 p-0 h-auto">
-          <TabsTrigger
-            value="saved"
-            className="flex-1 py-3 data-[state=active]:  data-[state=active]:shadow-sm rounded-none"
-          >
-            <Bookmark className="h-4 w-4 ml-2" />
-            المحتوى المحفوظ
-          </TabsTrigger>
-          <TabsTrigger
-            value="liked"
-            className="flex-1 py-3 data-[state=active]:  data-[state=active]:shadow-sm rounded-none"
-          >
-            <Heart className="h-4 w-4 ml-2" />
-            الإعجابات
-          </TabsTrigger>
-        </TabsList>
+      <div className="flex gap-4 justify-center md:justify-start mt-4">
+        <Button variant="outline" className="border-vintage-border" onClick={() => setSavedOpen(true)}>
+          <Bookmark className="h-4 w-4 ml-2" />
+          المحتوى المحفوظ
+        </Button>
+        <Button variant="outline" className="border-vintage-border" onClick={() => setLikedOpen(true)}>
+          <Heart className="h-4 w-4 ml-2" />
+          الإعجابات
+        </Button>
+      </div>
 
-        <TabsContent value="saved" className="mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {savedContent.map((item) => {
-              const ItemIcon = item.contentType.icon
-
-              return (
-                <Link href={`/content/${item.slug}`} key={item._id?.toString()}>
-                  <Card className="h-full border-vintage-border  backdrop-blur-sm overflow-hidden hover:shadow-md transition-shadow">
-                    <CardContent className="p-0">
-                      <div className="relative h-40">
-                        <Image src={item.coverImage || "/placeholder.svg"} alt={item.title} fill className="object-cover" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end">
-                          <div className="p-4 text-white">
-                            <div className="flex items-center gap-1 text-xs mb-1">
-                              {getIconComponent(ItemIcon)}
-                              <span>{item.contentType.name}</span>
+      {/* Saved Content Modal */}
+      <Dialog open={savedOpen} onOpenChange={setSavedOpen}>
+        <DialogContent className="max-w-2xl w-full">
+          <DialogHeader>
+            <DialogTitle>
+              <Bookmark className="h-5 w-5 ml-2 inline-block" /> المحتوى المحفوظ
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[420px] md:max-h-[520px] overflow-y-auto rounded-lg border border-vintage-border bg-vintage-paper-dark/5 mt-4">
+            <div className="grid grid-cols-2 grid-rows-1 md:grid-rows-2 gap-6 p-4">
+              {savedContent.map((item) => {
+                const ItemIcon = item.contentType?.icon || "FileText"
+                return (
+                  <Link href={`/content/${item.slug}`} key={item._id?.toString()}>
+                    <Card className="h-full border-vintage-border  backdrop-blur-sm overflow-hidden hover:shadow-md transition-shadow">
+                      <CardContent className="p-0">
+                        <div className="relative h-40">
+                          <Image src={item.coverImage || "/placeholder.svg"} alt={item.title} fill className="object-cover" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end">
+                            <div className="p-4 text-white">
+                              <div className="flex items-center gap-1 text-xs mb-1">
+                                {getIconComponent(ItemIcon)}
+                                <span>{item.contentType?.name || "غير محدد"}</span>
+                              </div>
+                              <h3 className="font-bold">{item.title}</h3>
                             </div>
-                            <h3 className="font-bold">{item.title}</h3>
                           </div>
                         </div>
-                      </div>
-                      <div className="p-4">
-                        <div className="text-xs text-muted-foreground mb-2">{item.createdAt.toLocaleString("ar-EG")}</div>
-                        <p className="text-sm text-muted-foreground line-clamp-2">{item.excerpt}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              )
-            })}
-
-            {savedContent.length === 0 && (
-              <div className="col-span-2 text-center py-12 bg-vintage-paper-dark/5 rounded-lg">
-                <Bookmark className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                <h3 className="text-lg font-medium mb-1">لا يوجد محتوى محفوظ</h3>
-                <p className="text-muted-foreground">لم تقم بحفظ أي محتوى بعد.</p>
-              </div>
-            )}
+                        <div className="p-4">
+                          <div className="text-xs text-muted-foreground mb-2">{item.createdAt.toLocaleString("ar-EG")}</div>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{item.excerpt}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                )
+              })}
+              {savedContent.length === 0 && (
+                <div className="col-span-2 text-center py-12 bg-vintage-paper-dark/5 rounded-lg">
+                  <Bookmark className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                  <h3 className="text-lg font-medium mb-1">لا يوجد محتوى محفوظ</h3>
+                  <p className="text-muted-foreground">لم تقم بحفظ أي محتوى بعد.</p>
+                </div>
+              )}
+            </div>
           </div>
-        </TabsContent>
+        </DialogContent>
+      </Dialog>
 
-        <TabsContent value="liked" className="mt-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {likedContent.map((item) => {
-              const ItemIcon = item.contentType.icon
-
-              return (
-                <Link href={`/content/${item.slug}`} key={item._id?.toString()}>
-                  <Card className="h-full border-vintage-border  backdrop-blur-sm overflow-hidden hover:shadow-md transition-shadow">
-                    <CardContent className="p-0">
-                      <div className="relative h-40">
-                        <Image src={item.coverImage || "/placeholder.svg"} alt={item.title} fill className="object-cover" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end">
-                          <div className="p-4 text-white">
-                            <div className="flex items-center gap-1 text-xs mb-1">
-                              {getIconComponent(ItemIcon)}
-                              <span>{item.contentType.name}</span>
+      {/* Liked Content Modal */}
+      <Dialog open={likedOpen} onOpenChange={setLikedOpen}>
+        <DialogContent className="max-w-2xl w-full">
+          <DialogHeader>
+            <DialogTitle>
+              <Heart className="h-5 w-5 ml-2 inline-block" /> الإعجابات
+            </DialogTitle>
+          </DialogHeader>
+          <div className="max-h-[420px] md:max-h-[520px] overflow-y-auto rounded-lg border border-vintage-border bg-vintage-paper-dark/5 mt-4">
+            <div className="grid grid-cols-2 grid-rows-1 md:grid-rows-2 gap-6 p-4">
+              {likedContent.map((item) => {
+                const ItemIcon = item.contentType?.icon || "FileText"
+                return (
+                  <Link href={`/content/${item.slug}`} key={item._id?.toString()}>
+                    <Card className="h-full border-vintage-border  backdrop-blur-sm overflow-hidden hover:shadow-md transition-shadow">
+                      <CardContent className="p-0">
+                        <div className="relative h-40">
+                          <Image src={item.coverImage || "/placeholder.svg"} alt={item.title} fill className="object-cover" />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end">
+                            <div className="p-4 text-white">
+                              <div className="flex items-center gap-1 text-xs mb-1">
+                                {getIconComponent(ItemIcon)}
+                                <span>{item.contentType?.name || "غير محدد"}</span>
+                              </div>
+                              <h3 className="font-bold">{item.title}</h3>
                             </div>
-                            <h3 className="font-bold">{item.title}</h3>
                           </div>
                         </div>
-                      </div>
-                      <div className="p-4">
-                        <div className="text-xs text-muted-foreground mb-2">{item.createdAt.toLocaleString("ar-EG")}</div>
-                        <p className="text-sm text-muted-foreground line-clamp-2">{item.excerpt}</p>
-                      </div>
-                    </CardContent>
-                  </Card>
-                </Link>
-              )
-            })}
-
-            {likedContent.length === 0 && (
-              <div className="col-span-2 text-center py-12 bg-vintage-paper-dark/5 rounded-lg">
-                <Heart className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                <h3 className="text-lg font-medium mb-1">لا توجد إعجابات</h3>
-                <p className="text-muted-foreground">لم تقم بالإعجاب بأي محتوى بعد.</p>
-              </div>
-            )}
+                        <div className="p-4">
+                          <div className="text-xs text-muted-foreground mb-2">{item.createdAt.toLocaleString("ar-EG")}</div>
+                          <p className="text-sm text-muted-foreground line-clamp-2">{item.excerpt}</p>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  </Link>
+                )
+              })}
+              {likedContent.length === 0 && (
+                <div className="col-span-2 text-center py-12 bg-vintage-paper-dark/5 rounded-lg">
+                  <Heart className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                  <h3 className="text-lg font-medium mb-1">لا توجد إعجابات</h3>
+                  <p className="text-muted-foreground">لم تقم بالإعجاب بأي محتوى بعد.</p>
+                </div>
+              )}
+            </div>
           </div>
-        </TabsContent>
-      </Tabs>
+        </DialogContent>
+      </Dialog>
 
       {userData.isAdmin === true && (
         <>
@@ -578,90 +798,12 @@ export function UserProfile() {
                     </Button>
                   </Link>
 
-									{/* <Link href="/admin/dashboard">
-                  <Button variant="outline" className="w-full border-vintage-border justify-start">
-                    <FileEdit className="h-4 w-4 ml-2" />
-                    إدارة المحتوى
-                  </Button>
-									</Link> */}
-
-                  {/* <Button variant="outline" className="w-full border-vintage-border justify-start">
-                    <MessageSquare className="h-4 w-4 ml-2" />
-                    إدارة التعليقات
-                  </Button> */}
+									
                 </div>
-                {/* <div className="flex flex-col gap-2">
-                  <Button variant="outline" className="w-full border-vintage-border justify-start">
-                    <Users className="h-4 w-4 ml-2" />
-                    إدارة المستخدمين
-                  </Button>
-                  <Button variant="outline" className="w-full border-vintage-border justify-start">
-                    <BarChart3 className="h-4 w-4 ml-2" />
-                    الإحصائيات
-                  </Button>
-                  <Button variant="outline" className="w-full border-vintage-border justify-start">
-                    <Settings className="h-4 w-4 ml-2" />
-                    إعدادات المنصة
-                  </Button>
-                </div> */}
+               
               </div>
 
-              {/* <div className="space-y-4">
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-medium">نظرة عامة على المحتوى</h4>
-                  </div>
-                  <div className="grid grid-cols-3 gap-4 text-center">
-                    <div className="bg-vintage-paper-dark/5 p-3 rounded-md">
-                      <div className="text-2xl font-bold text-vintage-accent">
-                        {publishedContent.filter((item) => item.status === "published").length}
-                      </div>
-                      <div className="text-xs text-muted-foreground">منشور</div>
-                    </div>
-                    <div className="bg-vintage-paper-dark/5 p-3 rounded-md">
-                      <div className="text-2xl font-bold text-amber-500">
-                        {publishedContent.filter((item) => item.status === "draft").length}
-                      </div>
-                      <div className="text-xs text-muted-foreground">مسودة</div>
-                    </div>
-                    <div className="bg-vintage-paper-dark/5 p-3 rounded-md">
-                      <div className="text-2xl font-bold">
-                        {publishedContent.reduce((total, item) => total + item.comments, 0)}
-                      </div>
-                      <div className="text-xs text-muted-foreground">تعليق</div>
-                    </div>
-                  </div>
-                </div>
-
-                <div>
-                  <div className="flex justify-between items-center mb-2">
-                    <h4 className="font-medium">إحصائيات التفاعل</h4>
-                  </div>
-                  <div className="space-y-2">
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="flex items-center gap-1">
-                        <Eye className="h-4 w-4 text-muted-foreground" />
-                        المشاهدات
-                      </span>
-                      <span className="font-medium">
-                        {publishedContent.reduce((total, item) => total + item.views, 0)}
-                      </span>
-                    </div>
-                    <Progress value={75} className="h-2 bg-vintage-paper-dark/10" />
-
-                    <div className="flex justify-between items-center text-sm">
-                      <span className="flex items-center gap-1">
-                        <ThumbsUp className="h-4 w-4 text-muted-foreground" />
-                        الإعجابات
-                      </span>
-                      <span className="font-medium">
-                        {publishedContent.reduce((total, item) => total + item.likes, 0)}
-                      </span>
-                    </div>
-                    <Progress value={60} className="h-2 bg-vintage-paper-dark/10" />
-                  </div>
-                </div>
-              </div> */}
+          
             </CardContent>
           </Card>
 
@@ -669,19 +811,19 @@ export function UserProfile() {
             <CardHeader className="pb-3">
               <CardTitle className="text-xl flex items-center gap-2">
                 <FileText className="h-5 w-5 text-vintage-accent" />
-                المحتوى المنشور
+                المسودات
               </CardTitle>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                {publishedContent.length > 0 ? (
-                  publishedContent.map((item) => {
-                    const ItemIcon = item.icon
+                {draftContent.length > 0 ? (
+                  draftContent.map((item) => {
+                    const ItemIcon = getIconComponent(item.contentType?.icon || "FileText")
                     return (
-                      <div key={item.id} className="flex gap-4 p-3 border border-vintage-border rounded-md  ">
+                      <div key={item._id?.toString() || item.slug} className="flex gap-4 p-3 border border-vintage-border rounded-md">
                         <div className="relative h-16 w-24 rounded-md overflow-hidden flex-shrink-0">
                           <Image
-                            src={item.image || "/placeholder.svg"}
+                            src={item.coverImage || "/placeholder.svg"}
                             alt={item.title}
                             fill
                             className="object-cover"
@@ -689,19 +831,12 @@ export function UserProfile() {
                         </div>
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
-                            <ItemIcon className="h-3 w-3 text-vintage-accent" />
-                            <span className="text-xs text-muted-foreground">{item.type}</span>
-                            {item.status === "published" ? (
-                              <Badge className="bg-green-100 text-green-800 hover:bg-green-200 text-xs">
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                منشور
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline" className="text-xs">
-                                <Clock className="h-3 w-3 mr-1" />
-                                مسودة
-                              </Badge>
-                            )}
+                            {ItemIcon}
+                            <span className="text-xs text-muted-foreground">{item.contentType?.label || "غير محدد"}</span>
+                            <Badge variant="outline" className="text-xs">
+                              <Clock className="h-3 w-3 mr-1" />
+                              مسودة
+                            </Badge>
                           </div>
                           <Link href={`/content/${item.slug}`}>
                             <h3 className="font-bold truncate hover:text-vintage-accent transition-colors">
@@ -709,28 +844,29 @@ export function UserProfile() {
                             </h3>
                           </Link>
                           <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                            <span>{item.date}</span>
-                            <div className="flex items-center gap-1">
-                              <Eye className="h-3 w-3" />
-                              {item.views}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <ThumbsUp className="h-3 w-3" />
-                              {item.likes}
-                            </div>
-                            <div className="flex items-center gap-1">
-                              <MessageSquare className="h-3 w-3" />
-                              {item.comments}
-                            </div>
+                            <span>{item.createdAt ? new Date(item.createdAt).toLocaleString("ar-EG") : ""}</span>
+                            <span className="text-amber-600">آخر تعديل: {item.updatedAt ? new Date(item.updatedAt).toLocaleString("ar-EG") : "غير محدد"}</span>
                           </div>
                         </div>
                         <div className="flex flex-col gap-2">
-                          <Button variant="outline" size="sm" className="border-vintage-border h-8 px-2">
-                            <FileEdit className="h-3 w-3" />
-                            <span className="sr-only">تعديل</span>
-                          </Button>
-                          <Button variant="outline" size="sm" className="border-vintage-border h-8 px-2">
-                            <AlertCircle className="h-3 w-3" />
+                          <Link href={`/admin/edit/${item._id}`}>
+                            <Button variant="ghost" size="sm" className="border-vintage-border h-8 px-2">
+                              <Pencil className="h-4 w-4" />
+                              <span className="sr-only">تعديل</span>
+                            </Button>
+                          </Link>
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="border-vintage-border h-8 px-2 text-red-500 hover:text-red-700"
+                            onClick={() => {
+                              if (confirm('هل أنت متأكد من حذف هذه المسودة؟')) {
+                                // Handle delete draft
+                                console.log('Delete draft:', item._id);
+                              }
+                            }}
+                          >
+                            <Trash className="h-4 w-4" />
                             <span className="sr-only">حذف</span>
                           </Button>
                         </div>
@@ -739,11 +875,12 @@ export function UserProfile() {
                   })
                 ) : (
                   <div className="text-center py-8 bg-vintage-paper-dark/5 rounded-md">
-                    <p className="text-muted-foreground">لم تقم بنشر أي محتوى بعد.</p>
+                    <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <p className="text-muted-foreground mb-2">لا توجد مسودات حالياً.</p>
                     <Link href="/admin/create">
-                      <Button className="mt-2 bg-vintage-accent hover:bg-vintage-accent/90 text-white">
+                      <Button className="bg-vintage-accent hover:bg-vintage-accent/90 text-white">
                         <PlusCircle className="h-4 w-4 ml-2" />
-                        إنشاء محتوى جديد
+                        إنشاء مسودة جديدة
                       </Button>
                     </Link>
                   </div>
@@ -760,27 +897,37 @@ export function UserProfile() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-            {/*<div className="flex justify-between items-center p-4 border border-vintage-border rounded-md">
-              <div>
-                <h3 className="font-medium">تغيير كلمة المرور</h3>
-                <p className="text-sm text-muted-foreground">
-                  قم بتحديث كلمة المرور الخاصة بك بشكل دوري للحفاظ على أمان حسابك
-                </p>
-              </div>
-              <Button variant="outline" className="border-vintage-border">
-                تغيير
-              </Button>
-            </div>*/}
+           
 
-            <div className="flex justify-between items-center p-4 border border-vintage-border rounded-md">
-              <div>
-                <h3 className="font-medium">إشعارات البريد الإلكتروني</h3>
-                <p className="text-sm text-muted-foreground">إدارة إشعارات البريد الإلكتروني التي ترغب في تلقيها</p>
+            {userData.isAdmin === false && (
+              <div className="p-4 border border-vintage-border rounded-md">
+                <div className="flex items-center gap-2 mb-4">
+                  <Mail className="h-5 w-5 text-vintage-accent" />
+                  <h3 className="font-medium">إشعارات البريد الإلكتروني</h3>
+                </div>
+                <p className="text-sm text-muted-foreground mb-4">إدارة إشعارات البريد الإلكتروني التي ترغب في تلقيها</p>
+                
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <Bell className="h-4 w-4 text-vintage-accent" />
+                      <span className="text-sm">النشرة الإخبارية</span>
+                    </div>
+                    <Button
+                      variant={emailNotifications.newsletter ? "default" : "outline"}
+                      size="sm"
+                      onClick={handleNewsletterToggle}
+                      className={emailNotifications.newsletter 
+                        ? "bg-vintage-accent hover:bg-vintage-accent/90 text-white" 
+                        : "border-vintage-border"
+                      }
+                    >
+                      {emailNotifications.newsletter ? "مشترك" : "غير مشترك"}
+                    </Button>
+                  </div>
+                </div>
               </div>
-              <Button variant="outline" className="border-vintage-border">
-                إدارة
-              </Button>
-            </div>
+            )}
 
 						{userData.isAdmin === false &&(
             <div className="flex justify-between items-center p-4 border border-red-200 rounded-md bg-red-50">

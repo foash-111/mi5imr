@@ -14,7 +14,8 @@ import { useToast } from "@/hooks/use-toast"
 import { RichTextEditor } from "@/components/rich-text-editor"
 import { ContentTypeSelector } from "./shared/content-type-selector"
 import { DefaultCategoriesSection } from "./shared/default-categories-section"
-import { uploadToFalStorage } from "@/lib/upload-utils"
+import { ContentCategoriesSelector } from "./shared/content-categories-selector"
+import { uploadToFalStorageClient } from "@/lib/upload-utils"
 import { useRouter } from "next/navigation"
 
 interface ContentType {
@@ -22,6 +23,14 @@ interface ContentType {
   name: string
   label: string
   icon: string
+}
+
+interface Category {
+  _id: string
+  name: string
+  label: string
+  isDefault: boolean
+  contentTypeId?: string
 }
 
 interface PostFormProps {
@@ -58,11 +67,23 @@ export function PostForm({ mode, initialData }: PostFormProps) {
   const [selectedDefaultCategories, setSelectedDefaultCategories] = useState<string[]>(
     initialData?.defaultCategories || [],
   )
+  const [selectedContentCategories, setSelectedContentCategories] = useState<string[]>(() => {
+    // For edit mode, we need to separate default categories from content categories
+    if (initialData?.defaultCategories && initialData?.contentType) {
+      // This is a simplified approach - in a real implementation, you might want to fetch
+      // the actual categories and check their contentTypeId
+      return [] // We'll handle this properly when we have the content type loaded
+    }
+    return []
+  })
   const [externalUrl, setExternalUrl] = useState(initialData?.externalUrl || "")
   const [featured, setFeatured] = useState(initialData?.featured || false)
   const [published, setPublished] = useState(initialData?.published || false)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [contentTypes, setContentTypes] = useState<ContentType[]>([])
+  const [allCategories, setAllCategories] = useState<Category[]>([])
+  const [defaultCategories, setDefaultCategories] = useState<Category[]>([])
+  const [categoriesRefreshKey, setCategoriesRefreshKey] = useState(0)
 
   // Fetch content types
   useEffect(() => {
@@ -89,6 +110,88 @@ export function PostForm({ mode, initialData }: PostFormProps) {
     fetchContentTypes()
   }, [postType, toast])
 
+  // Fetch all categories for all content types
+  useEffect(() => {
+    async function fetchAllCategories() {
+      try {
+        const response = await fetch("/api/categories")
+        if (response.ok) {
+          const data = await response.json()
+          setAllCategories(data)
+        }
+      } catch (error) {
+        console.error("Error fetching all categories:", error)
+        toast({
+          title: "خطأ في تحميل البيانات",
+          description: "تعذر تحميل التصنيفات",
+          variant: "destructive",
+        })
+      }
+    }
+
+    fetchAllCategories()
+  }, [toast])
+
+  // Fetch default categories
+  useEffect(() => {
+    async function fetchDefaultCategories() {
+      try {
+        const response = await fetch("/api/categories?default=true")
+        if (response.ok) {
+          const data = await response.json()
+          setDefaultCategories(data)
+        }
+      } catch (error) {
+        console.error("Error fetching default categories:", error)
+        toast({
+          title: "خطأ في تحميل البيانات",
+          description: "تعذر تحميل التصنيفات الافتراضية",
+          variant: "destructive",
+        })
+      }
+    }
+
+    fetchDefaultCategories()
+  }, [toast])
+
+  // Filter content categories based on selected content type
+  const getContentCategoriesForSelectedType = () => {
+    if (!selectedContentType) return []
+    
+    // Get content-specific categories for the selected content type
+    const contentSpecificCategories = allCategories.filter(category => 
+      category.contentTypeId === selectedContentType._id && !category.isDefault
+    )
+    
+    // Filter out duplicates within the same content type based on name
+    const uniqueCategories: Category[] = []
+    const seenNames = new Set<string>()
+    
+    contentSpecificCategories.forEach(category => {
+      if (!seenNames.has(category.name)) {
+        seenNames.add(category.name)
+        uniqueCategories.push(category)
+      }
+    })
+    
+    return uniqueCategories
+  }
+
+  // Get default categories (completely isolated, no filtering)
+  const getFilteredDefaultCategories = () => {
+    return defaultCategories
+  }
+
+  // Handle initial data for edit mode
+  useEffect(() => {
+    if (mode === "edit" && initialData?.defaultCategories && selectedContentType) {
+      // In edit mode, we need to separate the categories
+      // For now, we'll assume all categories are content categories
+      // In a real implementation, you'd fetch the categories and check their contentTypeId
+      setSelectedContentCategories(initialData.defaultCategories)
+    }
+  }, [mode, initialData, selectedContentType])
+
   const handleImageChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0]
@@ -96,7 +199,7 @@ export function PostForm({ mode, initialData }: PostFormProps) {
       setCoverImagePreview(URL.createObjectURL(file))
 
       try {
-        const imageUrl = await uploadToFalStorage(file)
+        const imageUrl = await uploadToFalStorageClient(file)
         setCoverImageUrl(imageUrl)
         toast({
           title: "تم تحميل الصورة",
@@ -113,12 +216,28 @@ export function PostForm({ mode, initialData }: PostFormProps) {
     }
   }
 
+  const handleContentCategoryChange = (categoryId: string) => {
+    if (selectedContentCategories.includes(categoryId)) {
+      setSelectedContentCategories(selectedContentCategories.filter((id) => id !== categoryId))
+    } else {
+      setSelectedContentCategories([...selectedContentCategories, categoryId])
+    }
+  }
+
   const handleDefaultCategoryChange = (categoryId: string) => {
     if (selectedDefaultCategories.includes(categoryId)) {
       setSelectedDefaultCategories(selectedDefaultCategories.filter((id) => id !== categoryId))
     } else {
       setSelectedDefaultCategories([...selectedDefaultCategories, categoryId])
     }
+  }
+
+  // Function to refresh categories after changes
+  const handleCategoriesRefresh = () => {
+    setCategoriesRefreshKey(prev => prev + 1)
+    // Refetch categories
+    fetch("/api/categories").then(res => res.json()).then(setAllCategories).catch(console.error)
+    fetch("/api/categories?default=true").then(res => res.json()).then(setDefaultCategories).catch(console.error)
   }
 
   const handleSubmit = async (e: React.FormEvent, publishContent = false) => {
@@ -154,21 +273,23 @@ export function PostForm({ mode, initialData }: PostFormProps) {
     try {
       setIsSubmitting(true)
 
-      // Prepare data for API
-      const postData = {
-        title,
-        content,
-        excerpt,
-        coverImage: coverImageUrl,
-        contentType: selectedContentType,
-        defaultCategories: selectedDefaultCategories,
-        tags: tags
-          .split(",")
-          .map((tag) => tag.trim())
-          .filter((tag) => tag),
-        externalUrl,
-        published: publishContent,
-        featured,
+      // Create FormData for API
+      const formData = new FormData()
+      formData.append("title", title)
+      formData.append("content", content)
+      formData.append("excerpt", excerpt || "")
+      formData.append("contentTypeId", selectedContentType._id)
+      formData.append("categoryIds", JSON.stringify([...selectedDefaultCategories, ...selectedContentCategories]))
+      formData.append("tags", JSON.stringify(tags.split(",").map((tag) => tag.trim()).filter((tag) => tag)))
+      formData.append("externalUrl", externalUrl || "")
+      formData.append("published", publishContent.toString())
+      formData.append("featured", featured.toString())
+
+      // Handle cover image
+      if (coverImage) {
+        formData.append("coverImage", coverImage)
+      } else if (coverImageUrl) {
+        formData.append("existingCoverImage", coverImageUrl)
       }
 
       // Send to API
@@ -177,17 +298,17 @@ export function PostForm({ mode, initialData }: PostFormProps) {
 
       const response = await fetch(url, {
         method,
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify(postData),
+        body: formData, // Send FormData instead of JSON
       })
 
       if (!response.ok) {
-        throw new Error(mode === "edit" ? "فشل في تحديث المحتوى" : "فشل في إنشاء المحتوى")
+        const errorData = await response.json()
+        throw new Error(errorData.error || errorData.details || (mode === "edit" ? "فشل في تحديث المحتوى" : "فشل في إنشاء المحتوى"))
       }
 
       const result = await response.json()
+      
+      console.log("📥 Received API response:", result)
 
       toast({
         title: mode === "edit" ? "تم تحديث المحتوى" : publishContent ? "تم نشر المحتوى" : "تم حفظ المسودة",
@@ -195,11 +316,30 @@ export function PostForm({ mode, initialData }: PostFormProps) {
           mode === "edit" ? "تم تحديث المحتوى بنجاح" : publishContent ? "تم نشر المحتوى بنجاح" : "تم حفظ المسودة بنجاح",
       })
 
+      // Validate slug before redirecting
+      const validSlug = result.slug && result.slug !== "-" && result.slug !== "undefined" ? result.slug : result.id
+      console.log("🔗 Redirecting to slug:", validSlug, "Original slug:", result.slug, "Result object:", result)
+      
+      // Debug the redirect URL
+      const redirectUrl = `/content/${validSlug}`
+      console.log("🔗 Redirect URL:", redirectUrl, "Valid slug:", validSlug, "Type of validSlug:", typeof validSlug)
+
+      // If we don't have a valid slug, redirect to dashboard instead
+      if (!validSlug || validSlug === "undefined") {
+        console.warn("⚠️ No valid slug received, redirecting to dashboard")
+        toast({
+          title: "تم إنشاء المحتوى",
+          description: "تم إنشاء المحتوى بنجاح، ولكن حدث خطأ في التوجيه. سيتم توجيهك إلى لوحة التحكم.",
+        })
+        router.push("/admin/dashboard")
+        return
+      }
+
       // Redirect based on action
       if (mode === "edit") {
-        router.push(`/content/${result.slug || initialData?.id}`)
+        router.push(redirectUrl)
       } else if (publishContent) {
-        router.push(`/content/${result.slug}`)
+        router.push(redirectUrl)
       } else {
         router.push("/admin/dashboard")
       }
@@ -235,7 +375,21 @@ export function PostForm({ mode, initialData }: PostFormProps) {
               contentTypes={contentTypes}
               onContentTypeChange={setSelectedContentType}
               onContentTypesChange={setContentTypes}
+              onCategoriesRefresh={handleCategoriesRefresh}
+              allCategories={allCategories}
+              defaultCategories={getFilteredDefaultCategories()}
             />
+
+            {/* Content Categories Selector */}
+            <ContentCategoriesSelector
+              key={`${selectedContentType?._id}-${categoriesRefreshKey}`}
+              selectedCategories={selectedContentCategories}
+              onCategoryChange={handleContentCategoryChange}
+              contentTypeId={selectedContentType?._id}
+              categories={getContentCategoriesForSelectedType()}
+            />
+
+            {/* Note: Category management for content types is available in the Content Type Selector dialog above */}
 
             <div className="grid gap-3">
               <Label htmlFor="title">العنوان</Label>
@@ -307,7 +461,7 @@ export function PostForm({ mode, initialData }: PostFormProps) {
               </Tabs>
             </div>
 
-            {(postType === "سينما" || postType === "بودكاست") && (
+            {/* {(postType === "سينما" || postType === "بودكاست") && (
               <div className="grid gap-3">
                 <Label htmlFor="external-url">رابط خارجي (يوتيوب، سبوتيفاي، ساوند كلاود...)</Label>
                 <Input
@@ -318,7 +472,7 @@ export function PostForm({ mode, initialData }: PostFormProps) {
                   className="border-vintage-border"
                 />
               </div>
-            )}
+            )} */}
 
             <div className="grid gap-3">
               <Label htmlFor="tags">الوسوم (مفصولة بفواصل)</Label>
@@ -335,6 +489,8 @@ export function PostForm({ mode, initialData }: PostFormProps) {
             <DefaultCategoriesSection
               selectedCategories={selectedDefaultCategories}
               onCategoryChange={handleDefaultCategoryChange}
+              defaultCategories={getFilteredDefaultCategories()}
+              onCategoriesRefresh={handleCategoriesRefresh}
             />
 
             <div className="grid gap-3">

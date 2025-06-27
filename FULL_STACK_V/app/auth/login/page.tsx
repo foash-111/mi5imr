@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect, Suspense } from "react"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -9,39 +9,96 @@ import { BookOpen, LogIn } from "lucide-react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useToast } from "@/hooks/use-toast"
-import { signIn } from "next-auth/react"
-
+import { signIn, useSession } from "next-auth/react"
 
 export default function LoginPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [isGuestLoading, setIsGuestLoading] = useState(false)
   const router = useRouter()
   const { toast } = useToast()
+  const { data: session, status } = useSession()
+
+  // Redirect if already authenticated
+  useEffect(() => {
+    if (status === "authenticated" && session) {
+      console.log("User already authenticated, redirecting to feed");
+      router.push("/feed");
+    }
+  }, [session, status, router]);
+
+  // Show loading while checking session
+  if (status === "loading") {
+    return (
+      <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
+        <Suspense fallback={<div>Loading...</div>}>
+          <Navbar />
+        </Suspense>
+        <main className="flex-1 container py-12 flex items-center justify-center">
+          <div className="text-center">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-vintage-accent mx-auto mb-4"></div>
+            <p>جاري التحقق من حالة تسجيل الدخول...</p>
+          </div>
+        </main>
+        <Footer />
+      </div>
+    );
+  }
+
+  // Don't show login form if already authenticated
+  if (status === "authenticated") {
+    return null;
+  }
 
   const handleGoogleLogin = async () => {
     setIsLoading(true)
     try {
-      // Initiate Google Sign-In
-      await signIn("google", { callbackUrl: "/feed" });
-			console.log("Logging in with Google")
+      console.log("Starting Google login...");
+      
+      // Check if environment variables are set
+      if (!process.env.NEXT_PUBLIC_GOOGLE_CLIENT_ID) {
+        console.warn("Google Client ID not found in environment variables");
+      }
+      
+      // Initiate Google Sign-In with proper error handling
+      const result = await signIn("google", { 
+        callbackUrl: "/feed",
+        redirect: false 
+      });
+      
+      console.log("SignIn result:", result);
+      
+      if (result?.error) {
+        console.error("Google login error:", result.error);
+        toast({
+          title: "خطأ في تسجيل الدخول",
+          description: `حدث خطأ أثناء تسجيل الدخول: ${result.error}`,
+          variant: "destructive",
+        });
+      } else if (result?.ok) {
+        console.log("Google login successful");
+        toast({
+          title: "تم تسجيل الدخول",
+          description: "تم تسجيل دخولك بنجاح باستخدام حساب جوجل",
+        });
+        // Don't redirect here, let the useEffect handle it
+      } else if (result?.url) {
+        // This means NextAuth is redirecting, which is normal
+        console.log("NextAuth redirecting to:", result.url);
+        // Don't show error, this is expected behavior
+      } else {
+        console.log("No result from signIn - this might be normal for existing sessions");
+        // Don't show error for this case as it might be a successful login
+      }
     } catch (error) {
-      setIsLoading(false);
+      console.error("Google login exception:", error);
       toast({
         title: "خطأ في تسجيل الدخول",
         description: "حدث خطأ أثناء تسجيل الدخول باستخدام جوجل",
         variant: "destructive",
       });
+    } finally {
+      setIsLoading(false);
     }
-    console.log("Logging in with Google")
-    // Simulate loading
-    setTimeout(() => {
-      setIsLoading(false)
-      toast({
-        title: "تم تسجيل الدخول",
-        description: "تم تسجيل دخولك بنجاح باستخدام حساب جوجل",
-      })
-      router.push("/feed")
-    }, 1500)
   }
 
   const handleGuestAccess = () => {
@@ -60,7 +117,9 @@ export default function LoginPage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
-      <Navbar />
+      <Suspense fallback={<div>Loading...</div>}>
+        <Navbar />
+      </Suspense>
       <main className="flex-1 container py-12 flex items-center justify-center">
         <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden w-full max-w-md">
           <CardHeader className="text-center">

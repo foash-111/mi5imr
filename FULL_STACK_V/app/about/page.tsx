@@ -1,5 +1,5 @@
 'use client'
-import React from "react"
+import React, { Suspense } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Navbar } from "@/components/navbar"
@@ -11,7 +11,9 @@ export default function AboutPage() {
 
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
-      <Navbar />
+      <Suspense fallback={<div>Loading...</div>}>
+        <Navbar />
+      </Suspense>
       <main className="flex-1">
        {/* About Section */}
         <section className="py-16 px-4 bg-vintage-paper-dark/10">

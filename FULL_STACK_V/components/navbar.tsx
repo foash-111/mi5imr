@@ -5,7 +5,7 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { Badge } from "@/components/ui/badge"
-import { FaFacebook, FaYoutube, FaTwitter, FaReddit } from 'react-icons/fa'
+import { FaFacebook, FaYoutube, FaReddit } from 'react-icons/fa'
 import { FaXTwitter } from 'react-icons/fa6';
 import { BookOpen, Menu, X, Moon, Sun, Bell, Plus, ChevronDown } from 'lucide-react'
 import { useTheme } from "next-themes"
@@ -16,6 +16,36 @@ import { deactivateUserStatus } from "@/lib/api-client"
 import { useSearchParams } from "next/navigation";
 import { getContentTypes } from "@/lib/api-client"
 import type { ContentType } from "@/backend/models/types"
+import {
+  FileText,
+  BookOpen as BookOpenIcon,
+  Music,
+  Video,
+  Coffee,
+  Mic,
+  Newspaper,
+  PenTool,
+  Camera,
+  Headphones,
+  Film,
+  Feather,
+} from "lucide-react"
+
+// Icon mapping for content types
+const ICON_COMPONENTS = {
+  FileText,
+  BookOpen: BookOpenIcon,
+  Music,
+  Video,
+  Coffee,
+  Mic,
+  Newspaper,
+  PenTool,
+  Camera,
+  Headphones,
+  Film,
+  Feather,
+}
 
 export function Navbar() {
   const [isOpen, setIsOpen] = useState(false)
@@ -31,6 +61,11 @@ export function Navbar() {
 	const [profileOpen, setProfileOpen] = useState(false)
   const router = useRouter()
 
+  // Helper function to get the icon component
+  const getIconComponent = (iconName: string) => {
+    const IconComponent = ICON_COMPONENTS[iconName as keyof typeof ICON_COMPONENTS] || FileText
+    return <IconComponent className="h-4 w-4" />
+  }
 
 const isActive = (path: string) => {
     if (path === "/feed") {
@@ -84,23 +119,62 @@ const isActive = (path: string) => {
 
 
 	const handleLogout = async () => {
-
 		try {
-    // Set the user's active status to false
-    await deactivateUserStatus(false);
-    // Sign out the user without automatic redirect
-    await signOut({ redirect: false });
-    // Redirect to login page
-    router.push('/auth/login');
-  } catch (error) {
-    console.error('Logout failed:', error);
-    // Optionally show a user-friendly error message
-    alert('Failed to log out. Please try again.');
-  }
+			// Try to deactivate user status, but don't let it block logout
+			try {
+				await deactivateUserStatus(false);
+			} catch (statusError) {
+				console.warn('Failed to deactivate user status:', statusError);
+				// Continue with logout even if status update fails
+			}
+			
+			// Sign out the user without automatic redirect
+			await signOut({ redirect: false });
+			
+			// Redirect to login page
+			router.push('/auth/login');
+		} catch (error) {
+			console.error('Logout failed:', error);
+			// Even if there's an error, try to force logout
+			try {
+				await signOut({ redirect: false });
+				router.push('/auth/login');
+			} catch (fallbackError) {
+				console.error('Fallback logout also failed:', fallbackError);
+				// Last resort: reload the page
+				window.location.href = '/auth/login';
+			}
+		}
 	};
 
   const isAdmin = session?.user?.isAdmin || false
 	
+  // Handle content type selection with smart navigation
+  const handleContentTypeSelect = (contentType: ContentType) => {
+    setIsOpen(false) // Close mobile menu
+    
+    if (pathname === "/feed") {
+      // Already on feed page - update URL without redirect
+      const currentParams = new URLSearchParams(searchParams.toString())
+      currentParams.set("type", contentType.label) // Use label for consistency with feed page
+      router.push(`/feed?${currentParams.toString()}`)
+    } else {
+      // Not on feed page - redirect with content type filter
+      router.push(`/feed?type=${contentType.label}`)
+    }
+  }
+
+  // Check if a content type is currently selected
+  const getSelectedContentType = () => {
+    const selectedType = searchParams.get("type");
+    if (selectedType && pathname === "/feed") {
+      return contentTypes.find(type => type.label === selectedType);
+    }
+    return null;
+  }
+
+  const selectedContentType = getSelectedContentType();
+
   return (
 	<>
 			<header className="sticky top-0 z-50 w-full border-b border-vintage-border bg-vintage-paper/80 backdrop-blur-sm">
@@ -124,7 +198,7 @@ const isActive = (path: string) => {
 							className={`text-sm font-medium transition-colors ${isActive("/feed") ? "text-vintage-accent" : "hover:text-vintage-accent"}`}
 							onClick={() => setIsOpen(false)}
 						>
-							المحتويات
+							الصفحة الرئيسية
 						</Link>
 
 						
@@ -132,18 +206,38 @@ const isActive = (path: string) => {
 							<DropdownMenu>
 								<DropdownMenuTrigger asChild>
 									<Button variant="ghost" className="text-sm font-medium hover:text-vintage-accent p-0 h-auto">
-										أنواع المحتوى
+										{selectedContentType ? (
+											<>
+												{getIconComponent(selectedContentType.icon)}
+												<span className="mr-1">{selectedContentType.label}</span>
+											</>
+										) : (
+											"المحتويات"
+										)}
 										<ChevronDown className="mr-1 h-3 w-3" />
 									</Button>
 								</DropdownMenuTrigger>
 								<DropdownMenuContent align="end" className="w-48">
-									{contentTypes.map((type) => (
-										<DropdownMenuItem key={type._id?.toString()} asChild>
-											<Link href={`/feed?type=${type.name}`} className="w-full" onClick={() => setIsOpen(false)}>
-												{type.label}
-											</Link>
-										</DropdownMenuItem>
-									))}
+									{contentTypes.map((type) => {
+										const isSelected = selectedContentType?._id === type._id;
+										return (
+											<DropdownMenuItem key={type._id?.toString()} asChild>
+												<Button 
+													variant="ghost" 
+													className={`w-full flex items-center gap-2 justify-start h-auto p-2 ${
+														isSelected ? "bg-vintage-accent/10 text-vintage-accent" : ""
+													}`}
+													onClick={() => handleContentTypeSelect(type)}
+												>
+													{getIconComponent(type.icon)}
+													<span>{type.label}</span>
+													{isSelected && (
+														<span className="mr-auto text-xs">✓</span>
+													)}
+												</Button>
+											</DropdownMenuItem>
+										);
+									})}
 								</DropdownMenuContent>
 							</DropdownMenu>
 						<Link

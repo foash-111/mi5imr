@@ -23,20 +23,8 @@ import Image from "next/image"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
 import { useSession } from "next-auth/react"
-import { getContent, toggleLike, toggleBookmark } from "@/lib/api-client"
+import { toggleLike, toggleBookmark } from "@/lib/api-client"
 
-import { Content } from "@/backend/models/types"
-
-
-/*interface ContentFeedProps {
-  viewMode: "grid" | "list"
-  sortBy: "newest" | "popular" | "trending"
-  contentType: string | null
-	initialContent: Content[]
-	isLoading: boolean
-  error: string | null
-
-}*/
 
 interface ContentFeedProps {
   viewMode: "grid" | "list"
@@ -45,10 +33,10 @@ interface ContentFeedProps {
   error: string | null
 }
 
-/*export function ContentFeed({ viewMode, sortBy, contentType, initialContent, isLoading, error }: ContentFeedProps) {*/
 export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeedProps) {
 
   //const [content, setContent] = useState<Content[]>([])
+	const [localContent, setLocalContent] = useState<any[]>(content);
   const [likedPosts, setLikedPosts] = useState<string[]>([])
   const [savedPosts, setSavedPosts] = useState<string[]>([])
   const { toast } = useToast()
@@ -60,8 +48,16 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
     console.log("Updating content with initialContent:", initialContent);
     setContent(initialContent);
   }, [initialContent]);*/
+
+	useEffect(() => {
+    if (content) {
+			setLocalContent(content);
+      setLikedPosts(content.filter(item => item.isLiked).map(item => String(item._id)));
+      setSavedPosts(content.filter(item => item.isSaved).map(item => String(item._id)));
+    }
+  }, [content]);
 	
-	console.log("Content from feedpage:", content)
+	// console.log("Content from feedpage:", content)
 
   const handleLike = async (id: string) => {
     if (!session) {
@@ -72,45 +68,47 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
       return
     }
 
-    try {
-      const { liked } = await toggleLike(id)
-
-      if (liked) {
-        setLikedPosts([...likedPosts, id])
-        toast({
-          title: "تم الإعجاب",
-          description: "تم تسجيل إعجابك بالمنشور",
-        })
-      } else {
-        setLikedPosts(likedPosts.filter((postId) => postId !== id))
-        toast({
-          title: "تم إلغاء الإعجاب",
-          description: "تم إلغاء إعجابك بالمنشور",
-        })
-      }
-
-      // Update content like count
-			console.log("Toggling like for post:", id, "Liked:", liked)
-      setContent(
-        content.map((item) => {
-          if (String(String(item._id)) === id) {
-            return {
+		// Optimistic update
+    const previousContent = localContent;
+		const isCurrentlyLiked = likedPosts.includes(id);
+    setLocalContent(prev =>
+      prev.map(item =>
+        String(item._id) === id
+          ? {
               ...item,
-              likesCount: liked ? item.likesCount + 1 : item.likesCount - 1,
+              likesCount: isCurrentlyLiked ? item.likesCount - 1 : item.likesCount + 1,
             }
-          }
-          return item
-        }),
+          : item
       )
+    );
+
+    try {
+      //const { liked } = await toggleLike(id)
+      const { liked } = await toggleLike(id)
+			console.log("Toggling like for post:", id, "Liked:", liked)
+      
+			if (liked) {
+			setLocalContent(prev =>
+        prev.map(item =>
+          String(item._id) === id ? { ...item, likesCount: item.likesCount } : item
+        )						
+			)
+         setLikedPosts([...likedPosts, id])
+        toast({ title: "تم الإعجاب", description: "تم تسجيل إعجابك بالمنشور" });
+      } else {
+        setLikedPosts(prev => prev.filter(postId => postId !== id));
+        toast({ title: "تم إلغاء الإعجاب", description: "تم إلغاء إعجابك بالمنشور" });
+      }
     } catch (err) {
-      console.error("Error toggling like:", err)
+      console.error("Error toggling like:", err);
+      setLocalContent(previousContent); // Revert optimistic update
       toast({
         title: "حدث خطأ",
         description: "تعذر تحديث حالة الإعجاب",
         variant: "destructive",
-      })
+      });
     }
-  }
+  };
 
 	
   const handleShare = async (item: any) => {
@@ -195,24 +193,24 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
     switch (type) {
       case "articles":
       case "مقالات":
-        return FileText
+        return <FileText className="h-3 w-3 ml-1" />
       case "stories":
       case "حواديت":
-        return BookOpen
+        return <BookOpen className="h-3 w-3 ml-1" />
       case "poetry":
       case "شعر":
-        return Music
+        return <Music className="h-3 w-3 ml-1" />
       case "cinema":
       case "سينما":
-        return Video
+        return <Video className="h-3 w-3 ml-1" />
       case "reflections":
       case "تأملات":
-        return Coffee
+        return <Coffee className="h-3 w-3 ml-1" />
       case "podcasts":
       case "بودكاست":
-        return Mic
+        return <Mic className="h-3 w-3 ml-1" />
       default:
-        return FileText
+        return <FileText className="h-3 w-3 ml-1" />
     }
   }
 
@@ -238,7 +236,7 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
   }
 
   // If no content is available
-  if (content?.length === 0) {
+  if (localContent?.length === 0) {
     return (
       <div className="text-center py-16 bg-vintage-paper-dark/5 rounded-lg">
         <AlertCircle className="h-16 w-16 mx-auto text-muted-foreground mb-4" />
@@ -254,10 +252,10 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
   if (viewMode === "grid") {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {content?.map((item) => {
-          const ItemIcon = getIconForType(item.contentType.name)
-          const isLiked = likedPosts.includes(String(item._id))
-          const isSaved = savedPosts.includes(String(item._id))
+        {localContent?.map((item, index) => {
+          const ItemIcon = getIconForType(item?.contentType?.name) || getIconForType(item?.contentType?.label) || FileText;
+          const isLiked = likedPosts.includes(String(item._id)) || item.isLiked;
+          const isSaved = savedPosts.includes(String(item._id)) || item.isSaved;
 
           return (
             <Card
@@ -271,11 +269,16 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
                       src={item.coverImage || "/placeholder.svg?height=400&width=600"}
                       alt={item.title}
                       fill
+                      sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
+                      priority={index < 3}
+                      quality={85}
                       className="object-cover"
+                      placeholder="blur"
+                      blurDataURL="data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAIAAoDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAhEAACAQMDBQAAAAAAAAAAAAABAgMABAUGIWGRkqGx0f/EABUBAQEAAAAAAAAAAAAAAAAAAAMF/8QAGhEAAgIDAAAAAAAAAAAAAAAAAAECEgMRkf/aAAwDAQACEQMRAD8AltJagyeH0AthI5xdrLcNM91BF5pX2HaH9bcfaSXWGaRmknyJckliyjqTzSlT54b6bk+h0R//2Q=="
                     />
                     <div className="absolute top-2 right-2">
                       <Badge className="bg-vintage-accent/90 hover:bg-vintage-accent text-white">
-                        <ItemIcon className="h-3 w-3 ml-1" />
+                        {ItemIcon}
                         {item.contentType?.label || item.contentType?.name || "محتوى"}
                       </Badge>
                     </div>
@@ -285,13 +288,13 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
                 <div className="p-4 flex-1 flex flex-col">
                   <div className="flex items-center gap-3 mb-3">
                     <Avatar className="h-8 w-8 border border-vintage-border">
-                      <AvatarImage src={item.author.avatar || "/placeholder.svg"} alt={item.author.name} />
+                      <AvatarImage src={item.author?.avatar || "/placeholder.svg"} alt={item.author?.name || "غير محدد"} />
                       <AvatarFallback className="bg-vintage-paper-dark text-white">
-                        {item.author.name.substring(0, 2)}
+                        {item.author?.name?.substring(0, 2) || "غ"}
                       </AvatarFallback>
                     </Avatar>
                     <div>
-                      <div className="text-sm font-medium">{item.author.name}</div>
+                      <div className="text-sm font-medium">{item.author?.name || "غير محدد"}</div>
                       <div className="text-xs text-muted-foreground">
                         {new Date(item.createdAt).toLocaleDateString("ar-EG")}
                       </div>
@@ -362,8 +365,8 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
   // List view (default)
   return (
     <div className="space-y-6">
-      {content?.map((item) => {
-        const ItemIcon = getIconForType(item.contentType.name)
+      {localContent?.map((item) => {
+        const ItemIcon =  getIconForType(item?.contentType?.name) || getIconForType(item?.contentType?.label) || FileText;
         const isLiked = likedPosts.includes(String(item._id))
         const isSaved = savedPosts.includes(String(item._id))
 
@@ -372,19 +375,19 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
             <CardContent className="p-0">
               <div className="flex items-center gap-3 p-4 border-b border-vintage-border">
                 <Avatar className="h-10 w-10 border border-vintage-border">
-                  <AvatarImage src={item.author.avatar || "/placeholder.svg"} alt={item.author.name} />
+                  <AvatarImage src={item.author?.avatar || "/placeholder.svg"} alt={item.author?.name || "غير محدد"} />
                   <AvatarFallback className="bg-vintage-paper-dark text-white">
-                    {item.author.name.substring(0, 2)}
+                    {item.author?.name?.substring(0, 2) || "غ"}
                   </AvatarFallback>
                 </Avatar>
                 <div>
-                  <div className="font-medium">{item.author.name}</div>
+                  <div className="font-medium">{item.author?.name || "غير محدد"}</div>
                   <div className="text-xs text-muted-foreground">
                     {new Date(item.createdAt).toLocaleDateString("ar-EG")}
                   </div>
                 </div>
                 <Badge className="mr-auto bg-vintage-accent/90 hover:bg-vintage-accent text-white">
-                  <ItemIcon className="h-3 w-3 ml-1" />
+                  {ItemIcon}
                   {item.contentType?.label || item.contentType?.name || "محتوى"}
                 </Badge>
               </div>
@@ -427,7 +430,7 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
                         <Button
                           variant="ghost"
                           size="sm"
-                          className={`flex items-center gap-1 ${isLiked ? "text-red-500" : ""}`}
+                          className={`flex items-center gap-1 ${isLiked  || item.isLiked ? "text-red-500" : ""}`}
                           onClick={() => handleLike(String(item._id))}
                         >
                           <Heart className="h-4 w-4" fill={isLiked ? "currentColor" : "none"} />
@@ -444,7 +447,7 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
                         <Button
                           variant="ghost"
                           size="sm"
-                          className={isSaved ? "text-vintage-accent" : ""}
+                          className={isSaved || item.isSaved ? "text-vintage-accent" : ""}
                           onClick={() => handleSave(String(item._id))}
                         >
                           <Bookmark className="h-4 w-4" fill={isSaved ? "currentColor" : "none"} />

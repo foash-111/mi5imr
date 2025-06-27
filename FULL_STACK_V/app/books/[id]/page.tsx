@@ -54,8 +54,9 @@ const books = [
   },
 ]
 
-export default function BookPage({ params }: { params: { id: string } }) {
-  const bookId = Number.parseInt(params.id)
+export default async function BookPage({ params }: { params: Promise<{ id: string }> }) {
+  const awaitedParams = await params
+  const bookId = Number.parseInt(awaitedParams.id)
   const book = books.find((b) => b.id === bookId)
 
   if (!book) {

@@ -1,3 +1,5 @@
+@import url('https://fonts.googleapis.com/css2?family=Noto+Naskh+Arabic:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -85,4 +87,79 @@
 
 [dir="rtl"] .space-x-2 > :not([hidden]) ~ :not([hidden]) {
   --tw-space-x-reverse: 1;
+}
+
+/* Arabic typography support */
+.arabic-text {
+  font-family: 'Noto Naskh Arabic', serif;
+  direction: rtl;
+  text-align: right;
+}
+
+/* Rich text editor RTL support */
+.ProseMirror[dir="rtl"] {
+  direction: rtl !important;
+  text-align: right !important;
+  font-family: 'Noto Naskh Arabic', serif !important;
+}
+
+.ProseMirror[dir="rtl"] p,
+.ProseMirror[dir="rtl"] h1,
+.ProseMirror[dir="rtl"] h2,
+.ProseMirror[dir="rtl"] h3,
+.ProseMirror[dir="rtl"] h4,
+.ProseMirror[dir="rtl"] h5,
+.ProseMirror[dir="rtl"] h6,
+.ProseMirror[dir="rtl"] li,
+.ProseMirror[dir="rtl"] blockquote {
+  direction: rtl !important;
+  text-align: right !important;
+}
+
+.ProseMirror[dir="rtl"] ul,
+.ProseMirror[dir="rtl"] ol {
+  padding-right: 1.5em !important;
+  padding-left: 0 !important;
+}
+
+.ProseMirror[dir="rtl"] blockquote {
+  border-right: 3px solid #e5e7eb !important;
+  border-left: none !important;
+  padding-right: 1em !important;
+  padding-left: 0 !important;
+  margin-right: 0 !important;
+  margin-left: 0 !important;
+}
+
+/* Custom scrollbar styles for sidebar */
+.sidebar-scrollable {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--vintage-border)) transparent;
+}
+
+.sidebar-scrollable::-webkit-scrollbar {
+  width: 6px;
+}
+
+.sidebar-scrollable::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.sidebar-scrollable::-webkit-scrollbar-thumb {
+  background-color: hsl(var(--vintage-border));
+  border-radius: 3px;
+}
+
+.sidebar-scrollable::-webkit-scrollbar-thumb:hover {
+  background-color: hsl(var(--vintage-accent) / 0.5);
+}
+
+/* Hide scrollbar for featured content carousel */
+.scrollbar-hide {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
 }

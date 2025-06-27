@@ -2,9 +2,8 @@
 
 import { useState, useRef, useEffect } from "react"
 import { Card, CardContent } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ChevronRight, ChevronLeft, BookOpen, Music, Video, Coffee, Loader2, FileText, Mic } from "lucide-react"
+import { BookOpen, Music, Video, Coffee, Loader2, FileText, Mic } from "lucide-react"
 import Image from "next/image"
 import Link from "next/link"
 import { getContent } from "@/lib/api-client";
@@ -27,9 +26,28 @@ export function FeaturedContent() {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const { toast } = useToast();
-  const [currentIndex, setCurrentIndex] = useState(0)
-  const maxVisibleItems = 3
-  const containerRef = useRef<HTMLDivElement>(null)
+  const containerRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [isPaused, setIsPaused] = useState(false);
+  const currentIndexRef = useRef(0);
+  const [itemsPerView, setItemsPerView] = useState(3); // Default for desktop
+
+  // Responsive items per view
+  useEffect(() => {
+    const updateItemsPerView = () => {
+      if (window.innerWidth < 768) {
+        setItemsPerView(1); // Mobile: 1 item
+      } else if (window.innerWidth < 1024) {
+        setItemsPerView(2); // Tablet: 2 items
+      } else {
+        setItemsPerView(3); // Desktop: 3 items
+      }
+    };
+
+    updateItemsPerView();
+    window.addEventListener('resize', updateItemsPerView);
+    return () => window.removeEventListener('resize', updateItemsPerView);
+  }, []);
 
 		// Helper function to get the icon component
 		const getIconComponent = (iconName: string) => {
@@ -70,7 +88,7 @@ export function FeaturedContent() {
           sortBy: "newest" as const,
         };
         console.log("Fetching featured content with options:", options);
-        const content = await getContent(options);
+        const {content} = await getContent(options);
         console.log("Fetched featured content:", content);
         setFeaturedContent(content);
       } catch (err) {
@@ -89,43 +107,59 @@ export function FeaturedContent() {
     fetchFeaturedContent();
   }, [toast]);
 
-	const totalItems = featuredContent.length;
-
-
 	// Auto-scroll effect
   useEffect(() => {
-    if (totalItems > 0) {
-      const interval = setInterval(() => {
-        setCurrentIndex((prevIndex) => (prevIndex + 1 >= totalItems ? 0 : prevIndex + 1));
-      }, 5000);
-      return () => clearInterval(interval);
+    if (featuredContent.length > 0 && scrollRef.current) {
+      const scrollContainer = scrollRef.current;
+      
+      // Wait a bit for the DOM to be ready
+      const timeoutId = setTimeout(() => {
+        console.log('Starting auto-scroll with', featuredContent.length, 'items, showing', itemsPerView, 'per view');
+        
+        const interval = setInterval(() => {
+          if (scrollContainer && !isPaused) {
+            const items = scrollContainer.children;
+            if (items.length > 0) {
+              // Get the current item width and gap
+              const firstItem = items[0] as HTMLElement;
+              const itemWidth = firstItem.offsetWidth;
+              const gap = 24; // gap-6 = 24px
+              const scrollAmount = itemWidth + gap;
+              
+              // Calculate next position - move by itemsPerView at a time
+              const nextScrollLeft = currentIndexRef.current * scrollAmount * itemsPerView;
+              
+              // Check if we've reached the end (when we can't show itemsPerView more items)
+              const totalItems = featuredContent.length;
+              const currentGroup = Math.floor(currentIndexRef.current / itemsPerView);
+              const remainingItems = totalItems - (currentGroup * itemsPerView);
+              
+              if (remainingItems <= 0) {
+                // Reset to beginning
+                currentIndexRef.current = 0;
+                scrollContainer.scrollTo({ left: 0, behavior: 'smooth' });
+                console.log('Reset to beginning');
+              } else {
+                // Move to next group of itemsPerView items
+                currentIndexRef.current += itemsPerView;
+                scrollContainer.scrollTo({ left: nextScrollLeft, behavior: 'smooth' });
+                console.log('Auto-scrolling to group:', Math.floor(currentIndexRef.current / itemsPerView), 'position:', nextScrollLeft);
+              }
+            }
+          }
+        }, 3000); // Scroll every 3 seconds
+
+        return () => clearInterval(interval);
+      }, 1000); // Wait 1 second for DOM to be ready
+
+      return () => clearTimeout(timeoutId);
     }
-  }, [totalItems]);
-
-  const nextSlide = () => {
-    setCurrentIndex((prevIndex) => (prevIndex + 1 >= totalItems ? 0 : prevIndex + 1));
-  };
-
-  const prevSlide = () => {
-    setCurrentIndex((prevIndex) => (prevIndex - 1 < 0 ? totalItems - 1 : prevIndex - 1));
-  };
-
-	// Get visible items based on current index
-  const getVisibleItems = () => {
-    if (totalItems === 0) return [];
-    const items = [];
-    for (let i = 0; i < maxVisibleItems; i++) {
-      const index = (currentIndex + i) % totalItems;
-      items.push(featuredContent[index]);
-    }
-    return items;
-  };
+  }, [featuredContent, isPaused, itemsPerView]);
 
   // Get icon for content type
   const getIconForType = (typeName: string) => {
     return contentTypeIcons[typeName as keyof typeof contentTypeIcons] || FileText;
   };
-
 
 		// Loading state
   if (isLoading) {
@@ -146,7 +180,7 @@ export function FeaturedContent() {
   }
 
 	// Empty state
-  if (totalItems === 0) {
+  if (featuredContent.length === 0) {
     return (
       <div className="text-center py-8">
         <p className="text-muted-foreground">لا يوجد محتوى مميز متاح حالياً</p>
@@ -155,64 +189,71 @@ export function FeaturedContent() {
   }
 
 return (
-    <div className="relative overflow-hidden">
-      <div className="flex justify-end mb-4 gap-2">
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={prevSlide}
-          className="border-vintage-border hover:bg-vintage-paper-dark/10 z-10"
-        >
-          <ChevronRight className="h-4 w-4" />
-          <span className="sr-only">السابق</span>
-        </Button>
-        <Button
-          variant="outline"
-          size="icon"
-          onClick={nextSlide}
-          className="border-vintage-border hover:bg-vintage-paper-dark/10 z-10"
-        >
-          <ChevronLeft className="h-4 w-4" />
-          <span className="sr-only">التالي</span>
-        </Button>
+    <div className="relative overflow-hidden" ref={containerRef}>
+      {/* Auto-scroll indicator */}
+      <div className="absolute top-2 left-2 z-10">
+        <div className={`w-3 h-3 rounded-full ${isPaused ? 'bg-red-500' : 'bg-green-500'} animate-pulse`} 
+             title={isPaused ? 'Auto-scroll paused' : 'Auto-scroll active'} />
       </div>
+      
       <div
-        ref={containerRef}
-        className="relative grid grid-cols-1 md:grid-cols-3 gap-6 transition-transform duration-500 ease-in-out"
-        style={{ transform: `translateX(-${(currentIndex % maxVisibleItems) * (100 / maxVisibleItems)}%)` }}
+        ref={scrollRef}
+        className="flex gap-6 overflow-x-auto scrollbar-hide scroll-smooth"
+        onMouseEnter={() => setIsPaused(true)}
+        onMouseLeave={() => setIsPaused(false)}
       >
-        {featuredContent.map((item, index) => {
-          const ItemIcon = getIconForType(item.contentType?.label || "");
+        {/* Group items into sets based on itemsPerView */}
+        {Array.from({ length: Math.ceil(featuredContent.length / itemsPerView) }, (_, groupIndex) => {
+          const startIndex = groupIndex * itemsPerView;
+          const groupItems = featuredContent.slice(startIndex, startIndex + itemsPerView);
+          
           return (
-            <div
-              key={item._id?.toString()}
-              className={`w-full ${index >= currentIndex && index < currentIndex + maxVisibleItems ? "block" : "hidden"} md:block`}
-            >
-              <Link href={`/content/${item.slug}`}>
-                <Card className="h-full overflow-hidden transition-all duration-300 hover:shadow-md border-vintage-border backdrop-blur-sm">
-                  <div className="relative h-48 overflow-hidden">
-                    <Image
-                      src={item.coverImage || "/placeholder.svg?height=400&width=600"}
-                      alt={item.title}
-                      fill
-                      className="object-cover transition-transform duration-500 hover:scale-105"
-                    />
-                    <div className="absolute top-2 right-2">
-                      <Badge className="bg-vintage-accent/90 hover:bg-vintage-accent text-white">
-                        <ItemIcon className="h-3 w-3 mr-1" />
-                        {item.contentType?.label || "غير محدد"}
-                      </Badge>
-                    </div>
+            <div key={`group-${groupIndex}`} className="flex gap-6 flex-shrink-0">
+              {groupItems.map((item) => {
+                const ItemIcon = getIconForType(item.contentType?.label || "");
+                return (
+                  <div
+                    key={item._id?.toString()}
+                    className="w-80 md:w-96 lg:w-[420px]"
+                  >
+                    <Link href={`/content/${item.slug}`}>
+                      <Card className="h-full overflow-hidden transition-all duration-300 hover:shadow-md border-vintage-border backdrop-blur-sm hover:scale-105">
+                        <div className="relative h-48 overflow-hidden">
+                          <Image
+                            src={item.coverImage || "/placeholder.svg?height=400&width=600"}
+                            alt={item.title}
+                            fill
+                            className="object-cover transition-transform duration-500 hover:scale-105"
+                          />
+                          <div className="absolute top-2 right-2">
+                            <Badge className="bg-vintage-accent/90 hover:bg-vintage-accent text-white">
+                              <ItemIcon className="h-3 w-3 mr-1" />
+                              {item.contentType?.label || "غير محدد"}
+                            </Badge>
+                          </div>
+                        </div>
+                        <CardContent className="p-4">
+                          <div className="text-sm text-muted-foreground mb-2">
+                            {item.createdAt ? new Date(item.createdAt).toLocaleDateString("ar-EG") : "غير محدد"}
+                          </div>
+                          <h3 className="text-xl font-bold mb-2 line-clamp-2">{item.title}</h3>
+                          <p className="text-muted-foreground line-clamp-3">{item.excerpt}</p>
+                        </CardContent>
+                      </Card>
+                    </Link>
                   </div>
-                  <CardContent className="p-4">
-                    <div className="text-sm text-muted-foreground mb-2">
-                      {item.createdAt ? new Date(item.createdAt).toLocaleDateString("ar-EG") : "غير محدد"}
-                    </div>
-                    <h3 className="text-xl font-bold mb-2 line-clamp-2">{item.title}</h3>
-                    <p className="text-muted-foreground line-clamp-3">{item.excerpt}</p>
-                  </CardContent>
-                </Card>
-              </Link>
+                );
+              })}
+              
+              {/* Fill empty slots if group has fewer than itemsPerView items */}
+              {Array.from({ length: itemsPerView - groupItems.length }, (_, index) => (
+                <div
+                  key={`empty-${groupIndex}-${index}`}
+                  className="w-80 md:w-96 lg:w-[420px]"
+                >
+                  {/* Empty slot - just takes up space */}
+                </div>
+              ))}
             </div>
           );
         })}

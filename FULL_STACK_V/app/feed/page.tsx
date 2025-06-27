@@ -36,13 +36,15 @@ const getCreatedAtFilter = (time: string | null) => {
 export default function FeedPage() {
   const [viewMode, setViewMode] = useState<"grid" | "list">("list")
   const [showMobileSidebar, setShowMobileSidebar] = useState(false)
-  const [contentTypes, setContentTypes] = useState<{ id: string; label: string; count: number }[]>([])
-  //const [contentType, setContentType] = useState<string | null>(null)
-
+  const [contentTypes, setContentTypes] = useState<{ id: string; label: string; count: number; _id?: string; icon?: string }[]>([])
+  const [totalCount, setTotalCount] = useState(0) // New state for total count
   const [content, setContent] = useState([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+	const [skip, setSkip] = useState(0) // New state for skip
+  const limit = 10 // Define limit (same as in getAllContent)
   const [attributes, setAttributes] = useState<{ id: string; label: string; count: number }[]>([])
+  const [allCategories, setAllCategories] = useState<{ id: string; label: string; count: number; contentTypeId?: string; isDefault: boolean }[]>([])
   const router = useRouter()
   const { toast } = useToast()
   const searchParams = useSearchParams()
@@ -51,14 +53,14 @@ export default function FeedPage() {
 	const attributesParam = useMemo(() => searchParams.get("attributes")?.split(",") || [], [searchParams])
 	const time = useMemo(() => searchParams.get("time"), [searchParams])
 	const search = useMemo(() => searchParams.get("q"), [searchParams])
- 
-	// let selectedType = ''
- 
+	const skipParam = useMemo(() => parseInt(searchParams.get("skip") || "0"), [searchParams]) // Get skip from URL
 
-	// first edit i moved those to use effect
   
+	useEffect(() => {
+    setSkip(skipParam) // Initialize skip from URL
+  }, [])
+
   useEffect(() => {
-		console.log("feedpage")
     const fetchData = async () => {
       setIsLoading(true)
       setError(null)
@@ -71,19 +73,43 @@ export default function FeedPage() {
           id: t.label,
           label: t.label,
           count: t.count || 0,
+          _id: t._id, // Include the database ID
+          icon: t.icon, // Include the icon information
         })))
 
-        /*const attrs = await getCategories()
-        setAttributes(attrs.map((a: any) => ({
-          id: a.name,
-          label: a.label,
-          count: a.count || 0,
-        })))*/
-			 // fix when fixing attrib
-			 setAttributes([
-					{ id: "category1", label: "الفئة 1", count: 10 },])
-			
+        // Fetch all categories with counts
+        const categoriesResponse = await fetch('/api/categories?withCounts=true')
+        const allCategoriesData = await categoriesResponse.json()
+        setAllCategories(allCategoriesData.map((cat: any) => ({
+          id: cat._id, // Use database _id instead of name for uniqueness
+          label: cat.label,
+          count: cat.count || 0, // Now this will have the actual count
+          contentTypeId: cat.contentTypeId,
+          isDefault: cat.isDefault,
+        })))
 
+        // Filter categories based on selected content types
+        let filteredCategories = []
+        if (typeParam.length > 0) {
+          // Scenario 2: When content types are selected - show only content-specific categories
+          const selectedTypeIds = types
+            .filter((t: any) => typeParam.includes(t.label))
+            .map((t: any) => t._id)
+          
+          // Show only categories for selected content types (hide defaults)
+          filteredCategories = allCategoriesData.filter((cat: any) => 
+            !cat.isDefault && selectedTypeIds.includes(cat.contentTypeId)
+          )
+        } else {
+          // Scenario 1: When no content types selected - show only default categories
+          filteredCategories = allCategoriesData.filter((cat: any) => cat.isDefault)
+        }
+
+        setAttributes(filteredCategories.map((cat: any) => ({
+          id: cat._id, // Use database _id instead of name for uniqueness
+          label: cat.label,
+          count: cat.count || 0, // Use the actual count from the API
+        })))
 
         const options: any = {
           contentType: typeParam.length > 0 ? typeParam : undefined,
@@ -91,19 +117,51 @@ export default function FeedPage() {
           sortBy: sort,
           published: true,
           limit: 10,
-          skip: 0,
+          skip,
           createdAt: getCreatedAtFilter(time),
           search: search || undefined,
         }
-        console.log("feed page options:", options);
-        const allContent = await getContent(options)
-				console.log("feedpage content:", allContent);
+
+        // Scenario 3: Handle default category selection for cross-type exploration
+        if (attributesParam.length > 0 && typeParam.length === 0) {
+          // When default categories are selected but no content types, 
+          // we need to find all content types that have categories with the same names
+          const selectedDefaultCategories = allCategoriesData.filter((cat: any) => 
+            attributesParam.includes(cat._id) && cat.isDefault
+          )
+          
+          if (selectedDefaultCategories.length > 0) {
+            // Find all content types that have categories with the same names as selected defaults
+            const matchingCategoryNames = selectedDefaultCategories.map(cat => cat.label)
+            const matchingContentTypes = allCategoriesData
+              .filter((cat: any) => 
+                !cat.isDefault && matchingCategoryNames.includes(cat.label)
+              )
+              .map(cat => cat.contentTypeId)
+            
+            // Get content type labels for matching types
+            const matchingTypeLabels = types
+              .filter((t: any) => matchingContentTypes.includes(t._id))
+              .map((t: any) => t.label)
+            
+            if (matchingTypeLabels.length > 0) {
+              options.contentType = matchingTypeLabels
+            }
+          }
+        }
+
+        const { content: allContent, totalCount } = await getContent(options)
         setContent(allContent)
+        setTotalCount(totalCount) // Set total count
 
         toast({
           title: typeParam.length || attributesParam.length || time || search ? "تم تطبيق الفلتر" : "جميع المحتويات",
           description: typeParam.length || attributesParam.length || time || search
-            ? "تم عرض المحتوى بناءً على الفلاتر المحددة"
+            ? typeParam.length > 0 
+              ? "تم عرض المحتوى بناءً على الأنواع والتصنيفات المحددة"
+              : attributesParam.length > 0
+              ? "تم عرض المحتوى من جميع الأنواع بناءً على التصنيفات الافتراضية المحددة"
+              : "تم عرض المحتوى بناءً على الفلاتر المحددة"
             : "تم عرض كافة المحتويات",
         })
       } catch (error) {
@@ -120,12 +178,10 @@ export default function FeedPage() {
     }
 
     fetchData()
-		console.log("after feedpge")
-  //}, [typeParam, attributesParam, time, search, sort, toast])
-	}, [searchParams, toast])
+//	}, [searchParams, toast])
+}, [searchParams, toast, skip, typeParam, attributesParam, sort, time, search])
 
 		//console.log("page feed content types",contentTypes, "attr",attributes)
-
 
   const handleSortChange = (sort: "newest" | "popular" | "trending") => {
     const params = new URLSearchParams(searchParams.toString())
@@ -134,6 +190,7 @@ export default function FeedPage() {
     } else {
       params.delete("sort")
     }
+		params.set("skip", "0") // Reset skip when sorting
     router.push(`/feed?${params.toString()}`)
 
     toast({
@@ -143,6 +200,29 @@ export default function FeedPage() {
       }`,
     })
   }
+	const handlePreviousPage = () => {
+    const newSkip = Math.max(0, skip - limit)
+    setSkip(newSkip)
+    const params = new URLSearchParams(searchParams.toString())
+    if (newSkip > 0) {
+      params.set("skip", newSkip.toString())
+    } else {
+      params.delete("skip")
+    }
+    router.push(`/feed?${params.toString()}`)
+  }
+
+  const handleNextPage = () => {
+    const newSkip = skip + limit
+    setSkip(newSkip)
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("skip", newSkip.toString())
+    router.push(`/feed?${params.toString()}`)
+		console.log("next page params:", params.toString())
+  }
+
+	const isPreviousDisabled = skip === 0
+  const isNextDisabled = skip + limit >= totalCount
 
   const toggleMobileSidebar = () => {
     setShowMobileSidebar(!showMobileSidebar)
@@ -162,20 +242,30 @@ export default function FeedPage() {
             </Button>
           </div>
 
-          {/* Sidebar - Mobile */}
-          <div className={`md:hidden ${showMobileSidebar ? "block" : "hidden"} w-full mb-6 transition-all duration-300 fixed top-16 left-0 z-50 bg-vintage-paper`}>
-            <div className="max-h-[calc(100vh-4rem)] overflow-y-auto">
-								<SidebarProvider>
-									<FeedSidebar contentTypes={contentTypes} attributes={attributes} />
-								</SidebarProvider>
-							</div>
-          </div>
-
           {/* Sidebar - Desktop */}
           <div className="hidden md:block md:w-1/4 lg:w-1/5">
-            <div className="sticky top-20">
+            <div className="sticky top-20 max-h-[calc(100vh-6rem)] overflow-y-auto sidebar-scrollable">
               <SidebarProvider>
-                <FeedSidebar contentTypes={contentTypes} attributes={attributes} />
+                <FeedSidebar 
+                  contentTypes={contentTypes} 
+                  attributes={attributes} 
+                  selectedTypes={typeParam}
+                  allCategories={allCategories}
+                />
+              </SidebarProvider>
+            </div>
+          </div>
+
+          {/* Sidebar - Mobile */}
+          <div className={`md:hidden ${showMobileSidebar ? "block" : "hidden"} w-full mb-6 transition-all duration-300 fixed top-16 left-0 z-50 bg-vintage-paper border-b border-vintage-border shadow-lg`}>
+            <div className="max-h-[calc(100vh-5rem)] overflow-y-auto p-4 sidebar-scrollable">
+              <SidebarProvider>
+                <FeedSidebar 
+                  contentTypes={contentTypes} 
+                  attributes={attributes} 
+                  selectedTypes={typeParam}
+                  allCategories={allCategories}
+                />
               </SidebarProvider>
             </div>
           </div>
@@ -248,8 +338,25 @@ export default function FeedPage() {
               isLoading={isLoading}
               error={error}
             />
+						{/* Pagination Buttons */}
+              <div className="mt-4 flex justify-between gap-2">
+                <Button
+                  variant="outline"
+                  onClick={handlePreviousPage}
+                  disabled={isPreviousDisabled}
+                >
+                  السابق
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={handleNextPage}
+                  disabled={isNextDisabled}
+                >
+                  التالي
+                </Button>
+              </div>
+            </div>
           </div>
-        </div>
       </main>
       <Footer />
     </div>

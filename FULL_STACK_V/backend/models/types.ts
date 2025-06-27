@@ -7,6 +7,15 @@ export interface User {
   avatar?: string
   isAdmin: boolean
   createdAt: Date
+  updatedAt?: Date
+  bio?: string
+  status?: boolean // User status (active, inactive, etc.)
+  username?: string // Optional username for user profile
+  image?: string // Optional image URL for user profile
+  lastLogin?: Date // Optional field to track last login time
+  emailNotifications?: {
+    newsletter: boolean
+  }
 }
 
 export interface ContentType {
@@ -75,11 +84,14 @@ export interface Comment {
   userId: ObjectId
   userName: string
   userAvatar?: string
+  userEmail?: string
   parentId?: ObjectId
   content: string
   likes: number
   createdAt: Date
   status: "pending" | "approved" | "rejected"
+	isLiked?: boolean
+  replies?: Comment[]
 }
 
 export interface ContentLike {

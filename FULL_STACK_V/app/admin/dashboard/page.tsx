@@ -1,931 +1,714 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { Navbar } from "@/components/navbar"
-import { Footer } from "@/components/footer"
+import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
+import { useRouter } from "next/navigation"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Button } from "@/components/ui/button"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
 import { Progress } from "@/components/ui/progress"
-import { Input } from "@/components/ui/input"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import {
-  PlusCircle,
-  FileEdit,
-  Users,
+import { 
+  Users, 
+  FileText, 
+  MessageSquare, 
+  Eye, 
+  Heart, 
+  TrendingUp, 
+  Calendar,
   BarChart3,
-  MessageSquare,
-  Settings,
-  Eye,
-  ThumbsUp,
-  FileText,
-  BookOpen,
-  Music,
-  Video,
-  Mic,
-  Coffee,
-  Search,
-  CheckCircle,
+  Activity,
+  Mail,
   Clock,
-  Trash2,
+  CheckCircle,
+  XCircle,
+  AlertCircle,
+  BookOpen,
+  PenTool,
+  Star,
+  Target,
+  Zap,
   ArrowUpRight,
-  Loader2,
+  ArrowDownRight
 } from "lucide-react"
-import Link from "next/link"
-import Image from "next/image"
+import { 
+  LineChart, 
+  Line, 
+  AreaChart, 
+  Area, 
+  BarChart, 
+  Bar, 
+  PieChart, 
+  Pie, 
+  Cell,
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip, 
+  Legend, 
+  ResponsiveContainer 
+} from "recharts"
+import { getDashboard, exportDashboardReport } from "@/lib/api-client"
 import { useToast } from "@/hooks/use-toast"
 
-// Types
-interface ContentType {
-  _id: string
-  name: string
-  label: string
-  icon: string
-}
-
-interface Category {
-  _id: string
-  name: string
-  label: string
-  isDefault: boolean
-}
-
-interface ContentItem {
-  _id: string
-  title: string
-  excerpt: string
-  slug: string
-  coverImage?: string
-  contentType: {
-    _id: string
-    name: string
-    label: string
-    icon: string
+interface DashboardData {
+  users: {
+    total: number
+    active: number
+    admins: number
+    newThisMonth: number
+    growthRate: number
   }
-  categories: Array<{
-    _id: string
-    name: string
-    label: string
-    isDefault: boolean
-  }>
-  author: {
-    _id: string
-    name: string
-    avatar?: string
+  content: {
+    total: number
+    published: number
+    drafts: number
+    featured: number
+    byType: Array<{
+      name: string
+      count: number
+      published: number
+    }>
+    byCategory: Array<{
+      name: string
+      count: number
+    }>
+    topContent: Array<{
+      id: string
+      title: string
+      views: number
+      likes: number
+      comments: number
+      score: number
+    }>
+    recentContent: Array<any>
   }
-  published: boolean
-  featured: boolean
-  viewCount: number
-  likesCount: number
-  commentsCount: number
-  createdAt: string
-  updatedAt: string
-}
-
-interface Comment {
-  _id: string
-  content: string
-  userName: string
-  createdAt: string
-  contentId: string
-  contentTitle: string
-  status: "pending" | "approved" | "rejected"
-}
-
-interface User {
-  _id: string
-  name: string
-  email: string
-  isAdmin: boolean
-  createdAt: string
-}
-
-// Icon mapping for content types
-const getIconComponent = (iconName: string) => {
-  const iconMap: { [key: string]: any } = {
-    FileText,
-    BookOpen,
-    Music,
-    Video,
-    Coffee,
-    Mic,
+  engagement: {
+    totalComments: number
+    approvedComments: number
+    pendingComments: number
+    rejectedComments: number
+    totalLikes: number
+    totalViews: number
+    averageEngagement: number
+    topEngagedContent: Array<{
+      id: string
+      title: string
+      engagementRate: number
+      views: number
+      likes: number
+      comments: number
+    }>
   }
-  return iconMap[iconName] || FileText
+  newsletter: {
+    totalSubscribers: number
+    activeSubscribers: number
+    newSubscribersThisMonth: number
+  }
+  timeSeries: {
+    contentCreated: Array<{ date: string; count: number }>
+    userRegistrations: Array<{ date: string; count: number }>
+    commentsPosted: Array<{ date: string; count: number }>
+  }
+  performance: {
+    contentViewsPerDay: number
+    engagementRate: number
+    commentApprovalRate: number
+  }
 }
 
-export default function AdminDashboardPage() {
+const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8', '#82CA9D']
+
+export default function AdminDashboard() {
+  const { data: session, status } = useSession()
+  const router = useRouter()
   const { toast } = useToast()
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
 
-  // State
-  const [contentTypes, setContentTypes] = useState<ContentType[]>([])
-  const [categories, setCategories] = useState<Category[]>([])
-  const [contentItems, setContentItems] = useState<ContentItem[]>([])
-  const [comments, setComments] = useState<Comment[]>([])
-  const [users, setUsers] = useState<User[]>([])
-
-  // Loading states
-  const [isLoadingContent, setIsLoadingContent] = useState(true)
-  const [isLoadingComments, setIsLoadingComments] = useState(true)
-  const [isLoadingUsers, setIsLoadingUsers] = useState(true)
-
-  // Filters
-  const [searchQuery, setSearchQuery] = useState("")
-  const [statusFilter, setStatusFilter] = useState<string | null>("all")
-  const [typeFilter, setTypeFilter] = useState<string | null>("all")
-
-  // Fetch data on component mount
   useEffect(() => {
-    fetchContentTypes()
-    fetchCategories()
-    fetchContent()
-    fetchComments()
-    fetchUsers()
-  }, [])
-
-  const fetchContentTypes = async () => {
-    try {
-      const response = await fetch("/api/content-types")
-      if (response.ok) {
-        const data = await response.json()
-        setContentTypes(data)
-      }
-    } catch (error) {
-      console.error("Error fetching content types:", error)
+    if (status === "unauthenticated") {
+      router.push('/auth/login')
     }
+  }, [status, router])
+
+  useEffect(() => {
+    async function fetchDashboardData() {
+      if (status === "authenticated" && session?.user) {
+        try {
+          setIsLoading(true)
+          const data = await getDashboard()
+          setDashboardData(data)
+        } catch (err: any) {
+          console.error("Error fetching dashboard data:", err)
+          setError(err.message || "Failed to fetch dashboard data")
+          toast({
+            title: "خطأ",
+            description: "فشل في تحميل بيانات لوحة التحكم",
+            variant: "destructive",
+          })
+        } finally {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    fetchDashboardData()
+  }, [session, status, toast])
+
+  if (status === "loading" || isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-32 w-32 border-b-2 border-vintage-accent mx-auto"></div>
+          <p className="mt-4 text-lg">جاري تحميل لوحة التحكم...</p>
+        </div>
+      </div>
+    )
   }
 
-  const fetchCategories = async () => {
-    try {
-      const response = await fetch("/api/categories")
-      if (response.ok) {
-        const data = await response.json()
-        setCategories(data)
-      }
-    } catch (error) {
-      console.error("Error fetching categories:", error)
-    }
+  if (error) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <AlertCircle className="h-16 w-16 text-red-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold mb-2">حدث خطأ</h2>
+          <p className="text-muted-foreground mb-4">{error}</p>
+          <Button onClick={() => window.location.reload()}>
+            إعادة المحاولة
+          </Button>
+        </div>
+      </div>
+    )
   }
 
-  const fetchContent = async () => {
+  if (!dashboardData) {
+    return null
+  }
+
+  const formatNumber = (num: number) => {
+    if (num >= 1000000) return (num / 1000000).toFixed(1) + 'M'
+    if (num >= 1000) return (num / 1000).toFixed(1) + 'K'
+    return num.toString()
+  }
+
+  const formatPercentage = (num: number) => {
+    return num.toFixed(1) + '%'
+  }
+
+  const handleExport = async () => {
     try {
-      setIsLoadingContent(true)
-      const response = await fetch("/api/content?published=all&limit=50")
-      if (response.ok) {
-        const data = await response.json()
-        setContentItems(data)
-      }
-    } catch (error) {
-      console.error("Error fetching content:", error)
+      const data = await exportDashboardReport('json')
+      
+      // Create and download the file
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `dashboard-export-${new Date().toISOString().split('T')[0]}.json`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      
       toast({
-        title: "خطأ في تحميل المحتوى",
-        description: "تعذر تحميل المحتوى",
-        variant: "destructive",
+        title: "تم التصدير",
+        description: "تم تصدير تقرير لوحة التحكم بنجاح",
+        variant: "default",
       })
-    } finally {
-      setIsLoadingContent(false)
-    }
-  }
-
-  const fetchComments = async () => {
-    try {
-      setIsLoadingComments(true)
-      const response = await fetch("/api/comments?status=all")
-      if (response.ok) {
-        const data = await response.json()
-        setComments(data)
-      }
-    } catch (error) {
-      console.error("Error fetching comments:", error)
-    } finally {
-      setIsLoadingComments(false)
-    }
-  }
-
-  const fetchUsers = async () => {
-    try {
-      setIsLoadingUsers(true)
-      const response = await fetch("/api/users")
-      if (response.ok) {
-        const data = await response.json()
-        setUsers(data)
-      }
-    } catch (error) {
-      console.error("Error fetching users:", error)
-    } finally {
-      setIsLoadingUsers(false)
-    }
-  }
-
-  // Filter content based on search query and filters
-  const filteredContent = contentItems.filter((item) => {
-    const matchesSearch =
-      searchQuery === "" ||
-      item.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      item.excerpt.toLowerCase().includes(searchQuery.toLowerCase())
-
-    const matchesStatus =
-      statusFilter === "all" ||
-      (statusFilter === "published" && item.published) ||
-      (statusFilter === "draft" && !item.published)
-
-    const matchesType = typeFilter === "all" || item.contentType.name === typeFilter
-
-    return matchesSearch && matchesStatus && matchesType
-  })
-
-  // Calculate statistics
-  const totalViews = contentItems.reduce((total, item) => total + item.viewCount, 0)
-  const totalLikes = contentItems.reduce((total, item) => total + item.likesCount, 0)
-  const totalComments = contentItems.reduce((total, item) => total + item.commentsCount, 0)
-  const publishedCount = contentItems.filter((item) => item.published).length
-  const draftCount = contentItems.filter((item) => !item.published).length
-  const pendingComments = comments.filter((comment) => comment.status === "pending").length
-
-  // Handle content actions
-  const handleDeleteContent = async (contentId: string) => {
-    if (!confirm("هل أنت متأكد من حذف هذا المحتوى؟")) return
-
-    try {
-      const response = await fetch(`/api/content/${contentId}`, {
-        method: "DELETE",
-      })
-
-      if (response.ok) {
-        setContentItems(contentItems.filter((item) => item._id !== contentId))
-        toast({
-          title: "تم حذف المحتوى",
-          description: "تم حذف المحتوى بنجاح",
-        })
-      } else {
-        throw new Error("Failed to delete content")
-      }
-    } catch (error) {
-      console.error("Error deleting content:", error)
+    } catch (error: any) {
+      console.error("Error exporting dashboard:", error)
       toast({
-        title: "خطأ في حذف المحتوى",
-        description: "تعذر حذف المحتوى",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleTogglePublish = async (contentId: string, currentStatus: boolean) => {
-    try {
-      const response = await fetch(`/api/content/${contentId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ published: !currentStatus }),
-      })
-
-      if (response.ok) {
-        setContentItems(
-          contentItems.map((item) => (item._id === contentId ? { ...item, published: !currentStatus } : item)),
-        )
-        toast({
-          title: currentStatus ? "تم إلغاء النشر" : "تم النشر",
-          description: currentStatus ? "تم إلغاء نشر المحتوى" : "تم نشر المحتوى بنجاح",
-        })
-      } else {
-        throw new Error("Failed to toggle publish status")
-      }
-    } catch (error) {
-      console.error("Error toggling publish status:", error)
-      toast({
-        title: "خطأ في تغيير حالة النشر",
-        description: "تعذر تغيير حالة النشر",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleApproveComment = async (commentId: string) => {
-    try {
-      const response = await fetch(`/api/comments/${commentId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ status: "approved" }),
-      })
-
-      if (response.ok) {
-        setComments(
-          comments.map((comment) =>
-            comment._id === commentId ? { ...comment, status: "approved" as const } : comment,
-          ),
-        )
-        toast({
-          title: "تم اعتماد التعليق",
-          description: "تم اعتماد التعليق بنجاح",
-        })
-      } else {
-        throw new Error("Failed to approve comment")
-      }
-    } catch (error) {
-      console.error("Error approving comment:", error)
-      toast({
-        title: "خطأ في اعتماد التعليق",
-        description: "تعذر اعتماد التعليق",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const handleDeleteComment = async (commentId: string) => {
-    if (!confirm("هل أنت متأكد من حذف هذا التعليق؟")) return
-
-    try {
-      const response = await fetch(`/api/comments/${commentId}`, {
-        method: "DELETE",
-      })
-
-      if (response.ok) {
-        setComments(comments.filter((comment) => comment._id !== commentId))
-        toast({
-          title: "تم حذف التعليق",
-          description: "تم حذف التعليق بنجاح",
-        })
-      } else {
-        throw new Error("Failed to delete comment")
-      }
-    } catch (error) {
-      console.error("Error deleting comment:", error)
-      toast({
-        title: "خطأ في حذف التعليق",
-        description: "تعذر حذف التعليق",
+        title: "خطأ",
+        description: "فشل في تصدير التقرير",
         variant: "destructive",
       })
     }
   }
 
   return (
-    <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
-      <Navbar />
-      <main className="flex-1 container py-8">
-        <div className="max-w-6xl mx-auto">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 mb-8">
-            <div>
-              <h1 className="text-3xl font-bold mb-1">لوحة تحكم الإدارة</h1>
-              <p className="text-muted-foreground">مرحباً بك في لوحة تحكم منصة مخيمر</p>
+    <div className="space-y-8 p-6">
+      {/* Header */}
+      <div className="flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-bold text-black dark:text-white">لوحة تحكم المدير</h1>
+          <p className="text-muted-foreground mt-2">نظرة شاملة على أداء المنصة</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" className="border-vintage-border">
+            <Calendar className="h-4 w-4 ml-2" />
+            آخر 30 يوم
+          </Button>
+          <Button className="bg-vintage-accent hover:bg-vintage-accent/90 text-white" onClick={handleExport}>
+            <BarChart3 className="h-4 w-4 ml-2" />
+            تصدير التقرير
+          </Button>
+        </div>
+      </div>
+
+      {/* Key Metrics Cards */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <Card className="border-vintage-border backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">إجمالي المستخدمين</CardTitle>
+            <Users className="h-4 w-4 text-vintage-accent" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatNumber(dashboardData.users.total)}</div>
+            <div className="flex items-center text-xs text-muted-foreground mt-1">
+              {dashboardData.users.growthRate >= 0 ? (
+                <ArrowUpRight className="h-3 w-3 text-green-500 ml-1" />
+              ) : (
+                <ArrowDownRight className="h-3 w-3 text-red-500 ml-1" />
+              )}
+              {Math.abs(dashboardData.users.growthRate).toFixed(1)}% من الشهر الماضي
             </div>
-            <div className="flex gap-2">
-              <Link href="/admin/create">
-                <Button className="bg-vintage-accent hover:bg-vintage-accent/90 text-white">
-                  <PlusCircle className="h-4 w-4 ml-2" />
-                  إنشاء محتوى جديد
-                </Button>
-              </Link>
-              <Button variant="outline" className="border-vintage-border">
-                <Settings className="h-4 w-4 ml-2" />
-                الإعدادات
-              </Button>
+            <div className="text-xs text-muted-foreground mt-1">
+              {dashboardData.users.newThisMonth} مستخدم جديد هذا الشهر
             </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-vintage-border backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">إجمالي المحتوى</CardTitle>
+            <FileText className="h-4 w-4 text-vintage-accent" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatNumber(dashboardData.content.total)}</div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+              <Badge variant="outline" className="text-xs">
+                {dashboardData.content.published} منشور
+              </Badge>
+              <Badge variant="outline" className="text-xs">
+                {dashboardData.content.drafts} مسودة
+              </Badge>
+            </div>
+            <div className="text-xs text-muted-foreground mt-1">
+              {dashboardData.content.featured} محتوى مميز
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-vintage-border backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">التفاعل</CardTitle>
+            <Activity className="h-4 w-4 text-vintage-accent" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatNumber(dashboardData.engagement.totalViews)}</div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+              <Eye className="h-3 w-3" />
+              {formatNumber(dashboardData.engagement.totalViews)} مشاهدة
+            </div>
+            <div className="flex items-center gap-2 text-xs text-muted-foreground mt-1">
+              <Heart className="h-3 w-3" />
+              {formatNumber(dashboardData.engagement.totalLikes)} إعجاب
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="border-vintage-border backdrop-blur-sm">
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">معدل التفاعل</CardTitle>
+            <Target className="h-4 w-4 text-vintage-accent" />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">{formatPercentage(dashboardData.performance.engagementRate)}</div>
+            <Progress value={dashboardData.performance.engagementRate} className="h-2 mt-2" />
+            <div className="text-xs text-muted-foreground mt-1">
+              {formatNumber(dashboardData.performance.contentViewsPerDay)} مشاهدة/يوم
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      {/* Main Dashboard Tabs */}
+      <Tabs defaultValue="overview" className="space-y-6">
+        <TabsList className="grid w-full grid-cols-4 border-vintage-border">
+          <TabsTrigger value="overview">نظرة عامة</TabsTrigger>
+          <TabsTrigger value="content">المحتوى</TabsTrigger>
+          <TabsTrigger value="engagement">التفاعل</TabsTrigger>
+          <TabsTrigger value="analytics">التحليلات</TabsTrigger>
+        </TabsList>
+
+        {/* Overview Tab */}
+        <TabsContent value="overview" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Time Series Chart */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <TrendingUp className="h-5 w-5 text-vintage-accent" />
+                  النشاط خلال 30 يوم
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={dashboardData.timeSeries.contentCreated}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => new Date(value).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' })}
+                    />
+                    <YAxis />
+                    <Tooltip 
+                      labelFormatter={(value) => new Date(value).toLocaleDateString('ar-EG')}
+                      formatter={(value: any) => [value, 'المحتوى']}
+                    />
+                    <Legend />
+                    <Line 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#FF6B35" 
+                      strokeWidth={2}
+                      name="المحتوى المنشور"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Content Distribution */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <PieChart className="h-5 w-5 text-vintage-accent" />
+                  توزيع المحتوى
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <PieChart>
+                    <Pie
+                      data={dashboardData.content.byType}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="count"
+                    >
+                      {dashboardData.content.byType.map((entry, index) => (
+                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                      ))}
+                    </Pie>
+                    <Tooltip formatter={(value: any) => [value, 'المحتوى']} />
+                  </PieChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
           </div>
 
-          {/* Statistics Cards */}
-          <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-            <Card className="border-vintage-border   backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <div className="h-10 w-10 rounded-full bg-vintage-accent/10 flex items-center justify-center mx-auto mb-2">
-                  <FileText className="h-5 w-5 text-vintage-accent" />
+          {/* Quick Stats */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <MessageSquare className="h-5 w-5 text-vintage-accent" />
+                  التعليقات
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">إجمالي التعليقات</span>
+                    <span className="font-bold">{formatNumber(dashboardData.engagement.totalComments)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm flex items-center gap-1">
+                      <CheckCircle className="h-3 w-3 text-green-500" />
+                      معتمدة
+                    </span>
+                    <span className="font-bold">{formatNumber(dashboardData.engagement.approvedComments)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm flex items-center gap-1">
+                      <Clock className="h-3 w-3 text-yellow-500" />
+                      في الانتظار
+                    </span>
+                    <span className="font-bold">{formatNumber(dashboardData.engagement.pendingComments)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm flex items-center gap-1">
+                      <XCircle className="h-3 w-3 text-red-500" />
+                      مرفوضة
+                    </span>
+                    <span className="font-bold">{formatNumber(dashboardData.engagement.rejectedComments)}</span>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold">{contentItems.length}</div>
-                <p className="text-xs text-muted-foreground">إجمالي المحتوى</p>
               </CardContent>
             </Card>
-            <Card className="border-vintage-border   backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <div className="h-10 w-10 rounded-full bg-green-100 flex items-center justify-center mx-auto mb-2">
-                  <CheckCircle className="h-5 w-5 text-green-600" />
+
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Mail className="h-5 w-5 text-vintage-accent" />
+                  النشرة الإخبارية
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">إجمالي المشتركين</span>
+                    <span className="font-bold">{formatNumber(dashboardData.newsletter.totalSubscribers)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">المشتركين النشطين</span>
+                    <span className="font-bold">{formatNumber(dashboardData.newsletter.activeSubscribers)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">جدد هذا الشهر</span>
+                    <span className="font-bold">{formatNumber(dashboardData.newsletter.newSubscribersThisMonth)}</span>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold">{publishedCount}</div>
-                <p className="text-xs text-muted-foreground">منشور</p>
               </CardContent>
             </Card>
-            <Card className="border-vintage-border   backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <div className="h-10 w-10 rounded-full bg-amber-100 flex items-center justify-center mx-auto mb-2">
-                  <Clock className="h-5 w-5 text-amber-600" />
+
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-vintage-accent" />
+                  المستخدمين
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">إجمالي المستخدمين</span>
+                    <span className="font-bold">{formatNumber(dashboardData.users.total)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">المستخدمين النشطين</span>
+                    <span className="font-bold">{formatNumber(dashboardData.users.active)}</span>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-sm">المديرين</span>
+                    <span className="font-bold">{formatNumber(dashboardData.users.admins)}</span>
+                  </div>
                 </div>
-                <div className="text-2xl font-bold">{draftCount}</div>
-                <p className="text-xs text-muted-foreground">مسودة</p>
-              </CardContent>
-            </Card>
-            <Card className="border-vintage-border   backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <div className="h-10 w-10 rounded-full bg-blue-100 flex items-center justify-center mx-auto mb-2">
-                  <Eye className="h-5 w-5 text-blue-600" />
-                </div>
-                <div className="text-2xl font-bold">{totalViews}</div>
-                <p className="text-xs text-muted-foreground">مشاهدة</p>
-              </CardContent>
-            </Card>
-            <Card className="border-vintage-border   backdrop-blur-sm">
-              <CardContent className="p-4 text-center">
-                <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-2">
-                  <ThumbsUp className="h-5 w-5 text-red-600" />
-                </div>
-                <div className="text-2xl font-bold">{totalLikes}</div>
-                <p className="text-xs text-muted-foreground">إعجاب</p>
               </CardContent>
             </Card>
           </div>
+        </TabsContent>
 
-          {/* Main Content Tabs */}
-          <Tabs defaultValue="content" className="w-full">
-            <TabsList className="w-full bg-vintage-paper-dark/10 p-0 h-auto">
-              <TabsTrigger
-                value="content"
-                className="flex-1 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-none"
-              >
-                <FileText className="h-4 w-4 ml-2" />
-                المحتوى
-              </TabsTrigger>
-              <TabsTrigger
-                value="comments"
-                className="flex-1 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-none relative"
-              >
-                <MessageSquare className="h-4 w-4 ml-2" />
-                التعليقات
-                {pendingComments > 0 && (
-                  <Badge className="absolute -top-1 -right-1 h-5 w-5 p-0 text-xs bg-red-500 text-white">
-                    {pendingComments}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger
-                value="users"
-                className="flex-1 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-none"
-              >
-                <Users className="h-4 w-4 ml-2" />
-                المستخدمين
-              </TabsTrigger>
-              <TabsTrigger
-                value="analytics"
-                className="flex-1 py-3 data-[state=active]:bg-white data-[state=active]:shadow-sm rounded-none"
-              >
-                <BarChart3 className="h-4 w-4 ml-2" />
-                الإحصائيات
-              </TabsTrigger>
-            </TabsList>
+        {/* Content Tab */}
+        <TabsContent value="content" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Top Content */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Star className="h-5 w-5 text-vintage-accent" />
+                  أفضل المحتوى
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {dashboardData.content.topContent.slice(0, 5).map((item, index) => (
+                    <div key={item.id} className="flex items-center justify-between p-3 border border-vintage-border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-vintage-accent text-white rounded-full flex items-center justify-center text-sm font-bold">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-sm line-clamp-1">{item.title}</h4>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Eye className="h-3 w-3" />
+                            {formatNumber(item.views)}
+                            <Heart className="h-3 w-3" />
+                            {formatNumber(item.likes)}
+                            <MessageSquare className="h-3 w-3" />
+                            {formatNumber(item.comments)}
+                          </div>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {formatNumber(item.score)}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
 
-            {/* Content Tab */}
-            <TabsContent value="content" className="mt-6">
-              <Card className="border-vintage-border   backdrop-blur-sm overflow-hidden">
-                <CardHeader className="bg-vintage-paper-dark/5 pb-3">
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <CardTitle className="text-xl">إدارة المحتوى</CardTitle>
-                    <div className="flex flex-col md:flex-row gap-2">
-                      <div className="relative">
-                        <Search className="absolute right-3 top-2.5 h-4 w-4 text-muted-foreground" />
-                        <Input
-                          placeholder="بحث في المحتوى..."
-                          value={searchQuery}
-                          onChange={(e) => setSearchQuery(e.target.value)}
-                          className="pr-9 border-vintage-border focus-visible:ring-vintage-accent md:w-60"
-                        />
+            {/* Content by Category */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BookOpen className="h-5 w-5 text-vintage-accent" />
+                  المحتوى حسب الفئة
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <BarChart data={dashboardData.content.byCategory}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis dataKey="name" />
+                    <YAxis />
+                    <Tooltip formatter={(value: any) => [value, 'المحتوى']} />
+                    <Bar dataKey="count" fill="#FF6B35" />
+                  </BarChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Engagement Tab */}
+        <TabsContent value="engagement" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* Engagement Rate Chart */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Zap className="h-5 w-5 text-vintage-accent" />
+                  معدل التفاعل
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <AreaChart data={dashboardData.timeSeries.commentsPosted}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => new Date(value).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' })}
+                    />
+                    <YAxis />
+                    <Tooltip 
+                      labelFormatter={(value) => new Date(value).toLocaleDateString('ar-EG')}
+                      formatter={(value: any) => [value, 'التعليقات']}
+                    />
+                    <Area 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#FF6B35" 
+                      fill="#FF6B35" 
+                      fillOpacity={0.3}
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Top Engaged Content */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Target className="h-5 w-5 text-vintage-accent" />
+                  أعلى المحتوى تفاعلاً
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4">
+                  {dashboardData.engagement.topEngagedContent.slice(0, 5).map((item, index) => (
+                    <div key={item.id} className="flex items-center justify-between p-3 border border-vintage-border rounded-lg">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 bg-vintage-accent text-white rounded-full flex items-center justify-center text-sm font-bold">
+                          {index + 1}
+                        </div>
+                        <div>
+                          <h4 className="font-medium text-sm line-clamp-1">{item.title}</h4>
+                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                            <Eye className="h-3 w-3" />
+                            {formatNumber(item.views)}
+                            <Heart className="h-3 w-3" />
+                            {formatNumber(item.likes)}
+                            <MessageSquare className="h-3 w-3" />
+                            {formatNumber(item.comments)}
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex gap-2">
-                        <Select
-                          value={statusFilter || "all"}
-                          onValueChange={(value) => setStatusFilter(value || "all")}
-                        >
-                          <SelectTrigger className="border-vintage-border w-full md:w-40">
-                            <SelectValue placeholder="الحالة" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">جميع الحالات</SelectItem>
-                            <SelectItem value="published">منشور</SelectItem>
-                            <SelectItem value="draft">مسودة</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Select value={typeFilter || "all"} onValueChange={(value) => setTypeFilter(value || "all")}>
-                          <SelectTrigger className="border-vintage-border w-full md:w-40">
-                            <SelectValue placeholder="النوع" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="all">جميع الأنواع</SelectItem>
-                            {contentTypes.map((type) => (
-                              <SelectItem key={type._id} value={type.name}>
-                                {type.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {formatPercentage(item.engagementRate)}
+                      </Badge>
+                    </div>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+
+        {/* Analytics Tab */}
+        <TabsContent value="analytics" className="space-y-6">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+            {/* User Registration Trend */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <Users className="h-5 w-5 text-vintage-accent" />
+                  تسجيل المستخدمين
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <ResponsiveContainer width="100%" height={300}>
+                  <LineChart data={dashboardData.timeSeries.userRegistrations}>
+                    <CartesianGrid strokeDasharray="3 3" />
+                    <XAxis 
+                      dataKey="date" 
+                      tickFormatter={(value) => new Date(value).toLocaleDateString('ar-EG', { day: '2-digit', month: '2-digit' })}
+                    />
+                    <YAxis />
+                    <Tooltip 
+                      labelFormatter={(value) => new Date(value).toLocaleDateString('ar-EG')}
+                      formatter={(value: any) => [value, 'المستخدمين']}
+                    />
+                    <Line 
+                      type="monotone" 
+                      dataKey="count" 
+                      stroke="#00C49F" 
+                      strokeWidth={2}
+                      name="المستخدمين الجدد"
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              </CardContent>
+            </Card>
+
+            {/* Performance Metrics */}
+            <Card className="border-vintage-border backdrop-blur-sm">
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <BarChart3 className="h-5 w-5 text-vintage-accent" />
+                  مقاييس الأداء
+                </CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-6">
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium">معدل التفاعل</span>
+                      <span className="text-sm font-bold">{formatPercentage(dashboardData.performance.engagementRate)}</span>
+                    </div>
+                    <Progress value={dashboardData.performance.engagementRate} className="h-2" />
+                  </div>
+                  
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium">معدل اعتماد التعليقات</span>
+                      <span className="text-sm font-bold">{formatPercentage(dashboardData.performance.commentApprovalRate)}</span>
+                    </div>
+                    <Progress value={dashboardData.performance.commentApprovalRate} className="h-2" />
+                  </div>
+                  
+                  <div>
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-medium">المشاهدات اليومية</span>
+                      <span className="text-sm font-bold">{formatNumber(dashboardData.performance.contentViewsPerDay)}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">
+                      متوسط المشاهدات اليومية للمحتوى المنشور
                     </div>
                   </div>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {isLoadingContent ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin ml-2" />
-                      <span>جاري تحميل المحتوى...</span>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-vintage-border bg-vintage-paper-dark/5">
-                            <th className="py-3 px-4 text-right font-medium">العنوان</th>
-                            <th className="py-3 px-4 text-right font-medium">النوع</th>
-                            <th className="py-3 px-4 text-right font-medium">التصنيفات</th>
-                            <th className="py-3 px-4 text-right font-medium">التاريخ</th>
-                            <th className="py-3 px-4 text-right font-medium">الحالة</th>
-                            <th className="py-3 px-4 text-right font-medium">المشاهدات</th>
-                            <th className="py-3 px-4 text-right font-medium">الإعجابات</th>
-                            <th className="py-3 px-4 text-right font-medium">التعليقات</th>
-                            <th className="py-3 px-4 text-right font-medium">الإجراءات</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {filteredContent.map((item) => {
-                            const ItemIcon = getIconComponent(item.contentType.icon)
-                            return (
-                              <tr
-                                key={item._id}
-                                className="border-b border-vintage-border hover:bg-vintage-paper-dark/5"
-                              >
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-3">
-                                    <div className="relative h-10 w-16 rounded overflow-hidden flex-shrink-0">
-                                      <Image
-                                        src={item.coverImage || "/placeholder.svg?height=40&width=64"}
-                                        alt={item.title}
-                                        fill
-                                        className="object-cover"
-                                      />
-                                    </div>
-                                    <div className="min-w-0">
-                                      <div className="font-medium truncate">{item.title}</div>
-                                      <div className="text-xs text-muted-foreground truncate">{item.excerpt}</div>
-                                      {item.featured && (
-                                        <Badge className="mt-1 bg-yellow-100 text-yellow-800 text-xs">مميز</Badge>
-                                      )}
-                                    </div>
-                                  </div>
-                                </td>
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-1">
-                                    <ItemIcon className="h-3 w-3 text-vintage-accent" />
-                                    <span className="text-sm">{item.contentType.label}</span>
-                                  </div>
-                                </td>
-                                <td className="py-3 px-4">
-                                  <div className="flex flex-wrap gap-1">
-                                    {item.categories.slice(0, 2).map((category) => (
-                                      <Badge key={category._id} variant="outline" className="text-xs">
-                                        {category.label}
-                                      </Badge>
-                                    ))}
-                                    {item.categories.length > 2 && (
-                                      <Badge variant="outline" className="text-xs">
-                                        +{item.categories.length - 2}
-                                      </Badge>
-                                    )}
-                                  </div>
-                                </td>
-                                <td className="py-3 px-4 text-sm">
-                                  {new Date(item.createdAt).toLocaleDateString("ar-EG")}
-                                </td>
-                                <td className="py-3 px-4">
-                                  {item.published ? (
-                                    <Badge className="bg-green-100 text-green-800 hover:bg-green-200">
-                                      <CheckCircle className="h-3 w-3 mr-1" />
-                                      منشور
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="outline">
-                                      <Clock className="h-3 w-3 mr-1" />
-                                      مسودة
-                                    </Badge>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4 text-sm">{item.viewCount}</td>
-                                <td className="py-3 px-4 text-sm">{item.likesCount}</td>
-                                <td className="py-3 px-4 text-sm">{item.commentsCount}</td>
-                                <td className="py-3 px-4">
-                                  <div className="flex items-center gap-1">
-                                    <Link href={`/content/${item.slug}`}>
-                                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                        <ArrowUpRight className="h-4 w-4" />
-                                        <span className="sr-only">عرض</span>
-                                      </Button>
-                                    </Link>
-                                    <Link href={`/admin/edit/${item._id}`}>
-                                      <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                        <FileEdit className="h-4 w-4" />
-                                        <span className="sr-only">تعديل</span>
-                                      </Button>
-                                    </Link>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0"
-                                      onClick={() => handleTogglePublish(item._id, item.published)}
-                                    >
-                                      {item.published ? (
-                                        <Clock className="h-4 w-4 text-amber-500" />
-                                      ) : (
-                                        <CheckCircle className="h-4 w-4 text-green-500" />
-                                      )}
-                                      <span className="sr-only">{item.published ? "إلغاء النشر" : "نشر"}</span>
-                                    </Button>
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="h-8 w-8 p-0 text-red-500"
-                                      onClick={() => handleDeleteContent(item._id)}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                      <span className="sr-only">حذف</span>
-                                    </Button>
-                                  </div>
-                                </td>
-                              </tr>
-                            )
-                          })}
-                        </tbody>
-                      </table>
-                      {filteredContent.length === 0 && (
-                        <div className="text-center py-8">
-                          <p className="text-muted-foreground">لم يتم العثور على نتائج مطابقة لبحثك.</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* Comments Tab */}
-            <TabsContent value="comments" className="mt-6">
-              <Card className="border-vintage-border   backdrop-blur-sm overflow-hidden">
-                <CardHeader className="bg-vintage-paper-dark/5 pb-3">
-                  <CardTitle className="text-xl">إدارة التعليقات</CardTitle>
-                </CardHeader>
-                <CardContent className="p-4">
-                  {isLoadingComments ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin ml-2" />
-                      <span>جاري تحميل التعليقات...</span>
-                    </div>
-                  ) : (
-                    <div className="space-y-4">
-                      {comments.map((comment) => (
-                        <div
-                          key={comment._id}
-                          className={`p-4 border ${
-                            comment.status === "pending"
-                              ? "border-amber-200 bg-amber-50"
-                              : comment.status === "approved"
-                                ? "border-green-200 bg-green-50"
-                                : "border-red-200 bg-red-50"
-                          } rounded-md`}
-                        >
-                          <div className="flex justify-between items-start mb-2">
-                            <div>
-                              <div className="font-medium">{comment.userName}</div>
-                              <div className="text-xs text-muted-foreground">
-                                {new Date(comment.createdAt).toLocaleDateString("ar-EG")} • على "{comment.contentTitle}"
-                              </div>
-                            </div>
-                            <Badge
-                              className={
-                                comment.status === "approved"
-                                  ? "bg-green-100 text-green-800"
-                                  : comment.status === "pending"
-                                    ? "bg-amber-100 text-amber-800"
-                                    : "bg-red-100 text-red-800"
-                              }
-                            >
-                              {comment.status === "approved"
-                                ? "معتمد"
-                                : comment.status === "pending"
-                                  ? "قيد المراجعة"
-                                  : "مرفوض"}
-                            </Badge>
-                          </div>
-                          <p className="text-sm mb-3">{comment.content}</p>
-                          <div className="flex gap-2">
-                            {comment.status === "pending" && (
-                              <Button
-                                size="sm"
-                                className="bg-green-600 hover:bg-green-700 text-white"
-                                onClick={() => handleApproveComment(comment._id)}
-                              >
-                                <CheckCircle className="h-3 w-3 mr-1" />
-                                اعتماد
-                              </Button>
-                            )}
-                            <Link href={`/content/${comment.contentId}`}>
-                              <Button variant="outline" size="sm" className="border-vintage-border">
-                                <ArrowUpRight className="h-3 w-3 mr-1" />
-                                عرض المحتوى
-                              </Button>
-                            </Link>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              className="border-vintage-border text-red-500"
-                              onClick={() => handleDeleteComment(comment._id)}
-                            >
-                              <Trash2 className="h-3 w-3 mr-1" />
-                              حذف
-                            </Button>
-                          </div>
-                        </div>
-                      ))}
-                      {comments.length === 0 && (
-                        <div className="text-center py-8">
-                          <p className="text-muted-foreground">لا توجد تعليقات.</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* Users Tab */}
-            <TabsContent value="users" className="mt-6">
-              <Card className="border-vintage-border   backdrop-blur-sm overflow-hidden">
-                <CardHeader className="bg-vintage-paper-dark/5 pb-3">
-                  <CardTitle className="text-xl">إدارة المستخدمين</CardTitle>
-                </CardHeader>
-                <CardContent className="p-0">
-                  {isLoadingUsers ? (
-                    <div className="flex items-center justify-center py-8">
-                      <Loader2 className="h-6 w-6 animate-spin ml-2" />
-                      <span>جاري تحميل المستخدمين...</span>
-                    </div>
-                  ) : (
-                    <div className="overflow-x-auto">
-                      <table className="w-full">
-                        <thead>
-                          <tr className="border-b border-vintage-border bg-vintage-paper-dark/5">
-                            <th className="py-3 px-4 text-right font-medium">المستخدم</th>
-                            <th className="py-3 px-4 text-right font-medium">البريد الإلكتروني</th>
-                            <th className="py-3 px-4 text-right font-medium">الدور</th>
-                            <th className="py-3 px-4 text-right font-medium">تاريخ الانضمام</th>
-                            <th className="py-3 px-4 text-right font-medium">الإجراءات</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {users.map((user) => (
-                            <tr key={user._id} className="border-b border-vintage-border hover:bg-vintage-paper-dark/5">
-                              <td className="py-3 px-4 font-medium">{user.name}</td>
-                              <td className="py-3 px-4 text-sm">{user.email}</td>
-                              <td className="py-3 px-4">
-                                <Badge
-                                  className={
-                                    user.isAdmin ? "bg-purple-100 text-purple-800" : "bg-blue-100 text-blue-800"
-                                  }
-                                >
-                                  {user.isAdmin ? "مدير" : "مستخدم"}
-                                </Badge>
-                              </td>
-                              <td className="py-3 px-4 text-sm">
-                                {new Date(user.createdAt).toLocaleDateString("ar-EG")}
-                              </td>
-                              <td className="py-3 px-4">
-                                <div className="flex items-center gap-1">
-                                  <Button variant="ghost" size="sm" className="h-8 w-8 p-0">
-                                    <FileEdit className="h-4 w-4" />
-                                    <span className="sr-only">تعديل</span>
-                                  </Button>
-                                </div>
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                      {users.length === 0 && (
-                        <div className="text-center py-8">
-                          <p className="text-muted-foreground">لا توجد مستخدمين.</p>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            {/* Analytics Tab */}
-            <TabsContent value="analytics" className="mt-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <Card className="border-vintage-border   backdrop-blur-sm overflow-hidden">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">إحصائيات المحتوى</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div>
-                        <div className="flex justify-between items-center mb-1 text-sm">
-                          <span>المشاهدات</span>
-                          <span className="font-medium">{totalViews}</span>
-                        </div>
-                        <Progress
-                          value={Math.min((totalViews / Math.max(totalViews, 1000)) * 100, 100)}
-                          className="h-2 bg-vintage-paper-dark/10"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between items-center mb-1 text-sm">
-                          <span>الإعجابات</span>
-                          <span className="font-medium">{totalLikes}</span>
-                        </div>
-                        <Progress
-                          value={Math.min((totalLikes / Math.max(totalLikes, 500)) * 100, 100)}
-                          className="h-2 bg-vintage-paper-dark/10"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between items-center mb-1 text-sm">
-                          <span>التعليقات</span>
-                          <span className="font-medium">{totalComments}</span>
-                        </div>
-                        <Progress
-                          value={Math.min((totalComments / Math.max(totalComments, 200)) * 100, 100)}
-                          className="h-2 bg-vintage-paper-dark/10"
-                        />
-                      </div>
-                      <div>
-                        <div className="flex justify-between items-center mb-1 text-sm">
-                          <span>معدل التفاعل</span>
-                          <span className="font-medium">
-                            {contentItems.length > 0
-                              ? Math.round(((totalLikes + totalComments) / contentItems.length) * 100) / 100
-                              : 0}
-                            %
-                          </span>
-                        </div>
-                        <Progress
-                          value={
-                            contentItems.length > 0
-                              ? Math.min(((totalLikes + totalComments) / contentItems.length) * 10, 100)
-                              : 0
-                          }
-                          className="h-2 bg-vintage-paper-dark/10"
-                        />
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-
-                <Card className="border-vintage-border   backdrop-blur-sm overflow-hidden">
-                  <CardHeader className="pb-3">
-                    <CardTitle className="text-lg">توزيع المحتوى</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-vintage-paper-dark/5 p-4 rounded-md text-center">
-                          <div className="text-3xl font-bold text-vintage-accent">{publishedCount}</div>
-                          <div className="text-sm text-muted-foreground">منشور</div>
-                        </div>
-                        <div className="bg-vintage-paper-dark/5 p-4 rounded-md text-center">
-                          <div className="text-3xl font-bold text-amber-500">{draftCount}</div>
-                          <div className="text-sm text-muted-foreground">مسودة</div>
-                        </div>
-                      </div>
-
-                      <div className="space-y-2">
-                        <div className="text-sm font-medium">توزيع أنواع المحتوى</div>
-                        <div className="space-y-2">
-                          {contentTypes.map((type) => {
-                            const typeCount = contentItems.filter((item) => item.contentType.name === type.name).length
-                            const percentage = contentItems.length > 0 ? (typeCount / contentItems.length) * 100 : 0
-                            const TypeIcon = getIconComponent(type.icon)
-
-                            return (
-                              <div key={type._id}>
-                                <div className="flex justify-between items-center mb-1 text-xs">
-                                  <span className="flex items-center gap-1">
-                                    <TypeIcon className="h-3 w-3" /> {type.label}
-                                  </span>
-                                  <span>
-                                    {typeCount} ({Math.round(percentage)}%)
-                                  </span>
-                                </div>
-                                <Progress value={percentage} className="h-1.5 bg-vintage-paper-dark/10" />
-                              </div>
-                            )
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  </CardContent>
-                </Card>
-              </div>
-            </TabsContent>
-          </Tabs>
-        </div>
-      </main>
-      <Footer />
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </TabsContent>
+      </Tabs>
     </div>
   )
 }

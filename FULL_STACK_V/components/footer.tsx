@@ -41,41 +41,7 @@ export function Footer() {
               </a>
             </div>
           </div>
-          <div>
-            <h3 className="text-lg font-bold mb-4">المحتويات</h3>
-            <ul className="space-y-2 text-sm">
-              <li>
-                <Link href="/feed?type=مقالات" className="text-muted-foreground hover:text-vintage-accent">
-                  مقالات
-                </Link>
-              </li>
-              <li>
-                <Link href="/feed?type=حواديت" className="text-muted-foreground hover:text-vintage-accent">
-                  حواديت
-                </Link>
-              </li>
-              <li>
-                <Link href="/feed?type=شعر" className="text-muted-foreground hover:text-vintage-accent">
-                  شعر
-                </Link>
-              </li>
-              <li>
-                <Link href="/feed?type=تأملات" className="text-muted-foreground hover:text-vintage-accent">
-                  تأملات
-                </Link>
-              </li>
-              <li>
-                <Link href="/books" className="text-muted-foreground hover:text-vintage-accent">
-                  كتب
-                </Link>
-              </li>
-              <li>
-                <Link href="/podcasts" className="text-muted-foreground hover:text-vintage-accent">
-                  بودكاست
-                </Link>
-              </li>
-            </ul>
-          </div>
+          
           <div>
             <h3 className="text-lg font-bold mb-4">روابط مفيدة</h3>
             <ul className="space-y-2 text-sm">
@@ -120,7 +86,7 @@ export function Footer() {
               </li>
               <li className="flex items-center gap-2 text-muted-foreground">
                 <Phone className="h-4 w-4" />
-                <span>+123 456 7890</span>
+                <span>+1234567890</span>
               </li>
             </ul>
           </div>

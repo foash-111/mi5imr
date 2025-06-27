@@ -76,11 +76,19 @@ export async function GET(request: NextRequest) {
     }
 
     const userId = user._id!.toString()
+	  const contentId = request.nextUrl.searchParams.get("contentId");
 
     // Get bookmarks
-    const bookmarks = await getUserBookmarks(userId)
-
-    return NextResponse.json(bookmarks)
+		if (contentId) {
+			// Handle specific content saved check
+			const isSaved = await isContentBookmarkedByUser(userId, contentId);
+			console.log("Content savd status in routes:", isSaved);
+			return NextResponse.json({ saved: isSaved });
+		} else {
+			// Handle fetching all Saved content
+			const bookmarks = await getUserBookmarks(userId)
+			return NextResponse.json(bookmarks);
+		}
   } catch (error) {
     console.error("Error fetching bookmarks:", error)
     return NextResponse.json({ error: "Failed to fetch bookmarks" }, { status: 500 })
