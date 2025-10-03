@@ -83,7 +83,7 @@ export function ContentCategoriesSelector({
     return (
       <div className="grid gap-3">
         <Label>تصنيفات المحتوى</Label>
-        <div className="text-sm text-muted-foreground p-3 border rounded-md border-vintage-border bg-gray-50">
+        <div className="text-sm text-muted-foreground p-3 border rounded-md border-vintage-border ">
           يرجى اختيار نوع المحتوى أولاً لعرض التصنيفات المتاحة
         </div>
       </div>
@@ -124,7 +124,7 @@ export function ContentCategoriesSelector({
           ))}
         </div>
       ) : (
-        <div className="text-sm text-muted-foreground p-3 border rounded-md border-vintage-border bg-gray-50">
+        <div className="text-sm text-muted-foreground p-3 border rounded-md border-vintage-border">
           لا توجد تصنيفات متاحة لهذا النوع من المحتوى
         </div>
       )}

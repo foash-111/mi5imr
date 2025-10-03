@@ -1,6 +1,8 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { likeContent, unlikeContent, isContentLikedByUser, getUserByEmail, getUserLikes } from "@/backend/lib/db"
+import { likeContent, unlikeContent, isContentLikedByUser, getUserByEmail, getUserLikes, createNotification, getContentById } from "@/backend/lib/db"
 import { getServerSession } from "next-auth"
+import { getDb } from "@/backend/lib/db"
+import { ObjectId } from "mongodb"
 
 // POST /api/likes - Like or unlike content
 export async function POST(request: NextRequest) {
@@ -41,6 +43,38 @@ export async function POST(request: NextRequest) {
     } else {
       // Like
       success = await likeContent(userId, contentId)
+
+      // Notification logic for content author
+      try {
+        const content = await getContentById(contentId)
+        console.log("Content author check:", {
+          contentAuthorId: content?.author._id?.toString(),
+          currentUserId: userId,
+          contentTitle: content?.title,
+          isDifferentUser: content?.author._id?.toString() !== userId,
+          contentAuthorName: content?.author.name,
+          currentUserName: user.name
+        })
+        
+        if (content && content.author._id && content.author._id.toString() !== userId) {
+          console.log("Creating notification for content author:", content.author._id.toString())
+          await createNotification({
+            userId: content.author._id,
+            type: 'content_like',
+            contentId: contentId,
+            slug: content.slug,
+            title: 'تم الإعجاب بمحتواك',
+            message: `قام ${user.name} بالإعجاب بمحتواك: ${content.title}`,
+            isRead: false,
+            createdAt: new Date(),
+          })
+          console.log("Notification created successfully for content like")
+        } else {
+          console.log("No notification created - same user or missing author")
+        }
+      } catch (e) {
+        console.error('Failed to create content like notification:', e)
+      }
     }
 
     if (!success) {

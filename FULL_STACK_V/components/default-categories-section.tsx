@@ -232,7 +232,6 @@ export function DefaultCategoriesSection({ selectedCategories, onCategoryChange 
                   >
                     <div className="flex items-center gap-2">
                       <span>{category.label}</span>
-                      <span className="text-xs text-muted-foreground">({category.name})</span>
                     </div>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => startEditingDefaultCategory(category)}>

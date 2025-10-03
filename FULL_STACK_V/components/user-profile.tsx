@@ -2,8 +2,7 @@
 
 import type React from "react"
 import { signOut, useSession } from 'next-auth/react';
-import { useEffect } from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
@@ -109,6 +108,9 @@ const formatDate = (dateString: string) => {
 //   },
 // ]
 
+// Social links keys for the global settings
+const SOCIAL_KEYS = ["twitter", "facebook", "youtube", "instagram", "reddit"];
+
 
 export function UserProfile() {
 
@@ -170,6 +172,7 @@ export function UserProfile() {
 
 	const [savedOpen, setSavedOpen] = useState(false)
 	const [likedOpen, setLikedOpen] = useState(false)
+	const [draftsOpen, setDraftsOpen] = useState(false)
 
 	// Fetch user data when session is authenticated
 
@@ -566,6 +569,52 @@ export function UserProfile() {
     }
   };
 
+  // Global settings state for admin
+  const [globalSettings, setGlobalSettings] = useState<any>(null);
+  const [globalLoading, setGlobalLoading] = useState(true);
+  const [globalEdit, setGlobalEdit] = useState(false);
+  const [globalSocialLinks, setGlobalSocialLinks] = useState<any>({});
+  const [globalAbout, setGlobalAbout] = useState<any>({ bio: "", image: "" });
+
+  // Fetch global settings for admin
+  useEffect(() => {
+    if (session?.user?.isAdmin) {
+      setGlobalLoading(true);
+      fetch("/api/settings")
+        .then(res => res.json())
+        .then(data => {
+          setGlobalSettings(data);
+          setGlobalSocialLinks(data.socialLinks || {});
+          setGlobalAbout(data.about || { bio: "", image: "" });
+        })
+        .finally(() => setGlobalLoading(false));
+    }
+  }, [session?.user?.isAdmin]);
+
+  // Save global settings (admin only)
+  async function handleSaveGlobalSettings() {
+    try {
+      const res = await fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          socialLinks: globalSocialLinks,
+          about: globalAbout,
+        }),
+      });
+      if (res.ok) {
+        toast({ title: "تم حفظ إعدادات الموقع بنجاح" });
+        setGlobalEdit(false);
+      } else {
+        toast({ title: "فشل في حفظ الإعدادات", variant: "destructive" });
+      }
+    } catch (e) {
+      toast({ title: "خطأ في الحفظ", description: String(e), variant: "destructive" });
+    }
+  }
+
+  const [globalDialogOpen, setGlobalDialogOpen] = useState(false);
+
   return (
     <div className="space-y-8">
       <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden">
@@ -663,7 +712,9 @@ export function UserProfile() {
               </div>
             ) : (
               <div className="mt-6">
-                <p className="leading-relaxed">{userData.bio}</p>
+                <p className="leading-relaxed text-muted-foreground">
+                  {userData.bio || "لا توجد سيرة ذاتية"}
+                </p>
               </div>
             )}
           </div>
@@ -679,6 +730,12 @@ export function UserProfile() {
           <Heart className="h-4 w-4 ml-2" />
           الإعجابات
         </Button>
+        {userData.isAdmin && (
+          <Button variant="outline" className="border-vintage-border" onClick={() => setDraftsOpen(true)}>
+            <FileText className="h-4 w-4 ml-2" />
+            المسودات
+          </Button>
+        )}
       </div>
 
       {/* Saved Content Modal */}
@@ -779,6 +836,57 @@ export function UserProfile() {
         </DialogContent>
       </Dialog>
 
+      {/* Drafts Content Modal (Admins only) */}
+      {userData.isAdmin && (
+        <Dialog open={draftsOpen} onOpenChange={setDraftsOpen}>
+          <DialogContent className="max-w-2xl w-full">
+            <DialogHeader>
+              <DialogTitle>
+                <FileText className="h-5 w-5 ml-2 inline-block" /> المسودات
+              </DialogTitle>
+            </DialogHeader>
+            <div className="max-h-[420px] md:max-h-[520px] overflow-y-auto rounded-lg border border-vintage-border bg-vintage-paper-dark/5 mt-4">
+              <div className="grid grid-cols-2 grid-rows-1 md:grid-rows-2 gap-6 p-4">
+                {draftContent.map((item) => {
+                  const ItemIcon = getIconComponent(item.contentType?.icon || "FileText")
+                  return (
+                    <Link href={`/content/${item.slug}`} key={item._id?.toString() || item.slug}>
+                      <Card className="h-full border-vintage-border  backdrop-blur-sm overflow-hidden hover:shadow-md transition-shadow">
+                        <CardContent className="p-0">
+                          <div className="relative h-40">
+                            <Image src={item.coverImage || "/placeholder.svg"} alt={item.title} fill className="object-cover" />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent flex items-end">
+                              <div className="p-4 text-white">
+                                <div className="flex items-center gap-1 text-xs mb-1">
+                                  {ItemIcon}
+                                  <span>{item.contentType?.name || "غير محدد"}</span>
+                                </div>
+                                <h3 className="font-bold">{item.title}</h3>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="p-4">
+                            <div className="text-xs text-muted-foreground mb-2">{item.createdAt ? new Date(item.createdAt).toLocaleString("ar-EG") : ""}</div>
+                            <p className="text-sm text-muted-foreground line-clamp-2">{item.excerpt}</p>
+                          </div>
+                        </CardContent>
+                      </Card>
+                    </Link>
+                  )
+                })}
+                {draftContent.length === 0 && (
+                  <div className="col-span-2 text-center py-12 bg-vintage-paper-dark/5 rounded-lg">
+                    <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
+                    <h3 className="text-lg font-medium mb-1">لا توجد مسودات</h3>
+                    <p className="text-muted-foreground">لم تقم بإنشاء أي مسودة بعد.</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
       {userData.isAdmin === true && (
         <>
           <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mt-8">
@@ -798,96 +906,90 @@ export function UserProfile() {
                     </Button>
                   </Link>
 
-									
+									 <Link href="/admin/dashboard">
+                  <Button variant="outline" className="w-full border-vintage-border justify-start">
+                    <FileEdit className="h-4 w-4 ml-2" />
+                    إدارة المحتوى
+                  </Button>
+									</Link> 
+
+                  <Button variant="outline" className="w-full border-vintage-border justify-start" onClick={() => setGlobalDialogOpen(true)}>
+                  <Settings className="h-4 w-4 ml-2" />
+                      إعدادات الموقع العامة
+                  </Button>
                 </div>
-               
+                
               </div>
 
-          
             </CardContent>
           </Card>
 
-          <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mt-8">
-            <CardHeader className="pb-3">
-              <CardTitle className="text-xl flex items-center gap-2">
-                <FileText className="h-5 w-5 text-vintage-accent" />
-                المسودات
-              </CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {draftContent.length > 0 ? (
-                  draftContent.map((item) => {
-                    const ItemIcon = getIconComponent(item.contentType?.icon || "FileText")
-                    return (
-                      <div key={item._id?.toString() || item.slug} className="flex gap-4 p-3 border border-vintage-border rounded-md">
-                        <div className="relative h-16 w-24 rounded-md overflow-hidden flex-shrink-0">
-                          <Image
-                            src={item.coverImage || "/placeholder.svg"}
-                            alt={item.title}
-                            fill
-                            className="object-cover"
-                          />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 mb-1">
-                            {ItemIcon}
-                            <span className="text-xs text-muted-foreground">{item.contentType?.label || "غير محدد"}</span>
-                            <Badge variant="outline" className="text-xs">
-                              <Clock className="h-3 w-3 mr-1" />
-                              مسودة
-                            </Badge>
+          {/* Remove the inline drafts card for admins */}
+        </>
+      )}
+
+      {/* Admin-only: Global Social Links & About Editor in Dialog */}
+      {session?.user?.isAdmin && (
+        <>
+          {/* <Button className="mt-8 mb-4 bg-vintage-accent text-white" onClick={() => setGlobalDialogOpen(true)}>
+            إعدادات الموقع العامة
+          </Button> */}
+          <Dialog open={globalDialogOpen} onOpenChange={setGlobalDialogOpen}>
+            <DialogContent className="max-w-2xl w-full">
+              <DialogHeader>
+                <DialogTitle>إعدادات الموقع العامة (روابط التواصل والمعلومات)</DialogTitle>
+              </DialogHeader>
+              <Card className="border-none shadow-none">
+                <CardContent className="p-0">
+                  {globalLoading ? (
+                    <div className="text-center py-4">جاري التحميل...</div>
+                  ) : (
+                    <>
+                      <div className="mb-4">
+                        <h3 className="font-semibold mb-2">روابط التواصل الاجتماعي</h3>
+                        {SOCIAL_KEYS.map(key => (
+                          <div key={key} className="mb-2 flex items-center gap-2">
+                            <Label className="w-24 capitalize">{key.charAt(0).toUpperCase() + key.slice(1)}</Label>
+                            <Input
+                              type="text"
+                              value={globalSocialLinks[key] || ""}
+                              onChange={e => setGlobalSocialLinks({ ...globalSocialLinks, [key]: e.target.value })}
+                              placeholder={`رابط ${key}`}
+                              className="flex-1"
+                            />
                           </div>
-                          <Link href={`/content/${item.slug}`}>
-                            <h3 className="font-bold truncate hover:text-vintage-accent transition-colors">
-                              {item.title}
-                            </h3>
-                          </Link>
-                          <div className="flex items-center gap-4 mt-1 text-xs text-muted-foreground">
-                            <span>{item.createdAt ? new Date(item.createdAt).toLocaleString("ar-EG") : ""}</span>
-                            <span className="text-amber-600">آخر تعديل: {item.updatedAt ? new Date(item.updatedAt).toLocaleString("ar-EG") : "غير محدد"}</span>
-                          </div>
-                        </div>
-                        <div className="flex flex-col gap-2">
-                          <Link href={`/admin/edit/${item._id}`}>
-                            <Button variant="ghost" size="sm" className="border-vintage-border h-8 px-2">
-                              <Pencil className="h-4 w-4" />
-                              <span className="sr-only">تعديل</span>
-                            </Button>
-                          </Link>
-                          <Button 
-                            variant="ghost" 
-                            size="sm" 
-                            className="border-vintage-border h-8 px-2 text-red-500 hover:text-red-700"
-                            onClick={() => {
-                              if (confirm('هل أنت متأكد من حذف هذه المسودة؟')) {
-                                // Handle delete draft
-                                console.log('Delete draft:', item._id);
-                              }
-                            }}
-                          >
-                            <Trash className="h-4 w-4" />
-                            <span className="sr-only">حذف</span>
-                          </Button>
-                        </div>
+                        ))}
                       </div>
-                    )
-                  })
-                ) : (
-                  <div className="text-center py-8 bg-vintage-paper-dark/5 rounded-md">
-                    <FileText className="h-12 w-12 mx-auto text-muted-foreground mb-3" />
-                    <p className="text-muted-foreground mb-2">لا توجد مسودات حالياً.</p>
-                    <Link href="/admin/create">
-                      <Button className="bg-vintage-accent hover:bg-vintage-accent/90 text-white">
-                        <PlusCircle className="h-4 w-4 ml-2" />
-                        إنشاء مسودة جديدة
-                      </Button>
-                    </Link>
-                  </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
+                      <div className="mb-4">
+                        <h3 className="font-semibold mb-2">معلومات عن الموقع/الكاتب</h3>
+                        <Label>نبذة تعريفية</Label>
+                        <Textarea
+                          value={globalAbout.bio || ""}
+                          onChange={e => setGlobalAbout({ ...globalAbout, bio: e.target.value })}
+                          placeholder="اكتب نبذة عن الموقع أو الكاتب..."
+                          className="mb-2"
+                        />
+                        
+                      </div>
+                      <div className="flex gap-2 mt-4">
+                        {globalEdit ? (
+                          <>
+                            <Button onClick={handleSaveGlobalSettings} className="bg-vintage-accent text-white">حفظ</Button>
+                            <Button variant="outline" onClick={() => setGlobalEdit(false)}>إلغاء</Button>
+                          </>
+                        ) : (
+                          <Button variant="outline" onClick={() => setGlobalEdit(true)}>تعديل</Button>
+                        )}
+                      </div>
+                      {!globalEdit && (
+                        <div className="text-xs text-muted-foreground mt-2">هذه الإعدادات تظهر في التذييل، الشريط العلوي، وصف الموقع وصفحة "عن الكاتب".</div>
+                      )}
+                    </>
+                  )}
+                </CardContent>
+              </Card>
+            </DialogContent>
+          </Dialog>
         </>
       )}
 
@@ -897,7 +999,6 @@ export function UserProfile() {
         </CardHeader>
         <CardContent>
           <div className="space-y-4">
-           
 
             {userData.isAdmin === false && (
               <div className="p-4 border border-vintage-border rounded-md">

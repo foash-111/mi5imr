@@ -1,17 +1,16 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
-import { markNotificationAsRead } from "@/backend/lib/db"
+import { markNotificationAsRead, deleteNotification } from "@/backend/lib/db"
 
-export async function PUT(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+export async function PUT(request: NextRequest, { params }: { params: { id: string } }) {
   try {
-    const awaitedParams = await params
     const session = await getServerSession()
 
     if (!session?.user?.email) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const success = await markNotificationAsRead(awaitedParams.id)
+    const success = await markNotificationAsRead(params.id)
 
     if (!success) {
       return NextResponse.json({ error: "Notification not found" }, { status: 404 })
@@ -21,5 +20,22 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
   } catch (error) {
     console.error("Error marking notification as read:", error)
     return NextResponse.json({ error: "Failed to mark notification as read" }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest, { params }: { params: { id: string } }) {
+  try {
+    const session = await getServerSession()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const success = await deleteNotification(params.id)
+    if (!success) {
+      return NextResponse.json({ error: "Notification not found" }, { status: 404 })
+    }
+    return NextResponse.json({ message: "Notification deleted" })
+  } catch (error) {
+    console.error("Error deleting notification:", error)
+    return NextResponse.json({ error: "Failed to delete notification" }, { status: 500 })
   }
 }

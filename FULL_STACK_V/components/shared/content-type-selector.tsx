@@ -28,18 +28,17 @@ import {
   Headphones,
   Film,
   Feather,
+  Check,
 } from "lucide-react"
 
 interface ContentType {
   _id: string
-  name: string
   label: string
   icon: string
 }
 
 interface Category {
   _id: string
-  name: string
   label: string
   isDefault: boolean
   contentTypeId?: string
@@ -98,13 +97,13 @@ export function ContentTypeSelector({
       category => category.contentTypeId === selectedContentType._id && !category.isDefault
     )
     
-    // Filter out duplicates within the same content type based on name
+    // Filter out duplicates within the same content type based on label
     const uniqueContentCategories: Category[] = []
-    const seenNames = new Set<string>()
+    const seenLabels = new Set<string>()
     
     contentSpecificCategories.forEach(category => {
-      if (!seenNames.has(category.name)) {
-        seenNames.add(category.name)
+      if (!seenLabels.has(category.label)) {
+        seenLabels.add(category.label)
         uniqueContentCategories.push(category)
       }
     })
@@ -127,10 +126,10 @@ export function ContentTypeSelector({
   const { contentCategories, totalCategories } = getCategoryCounts()
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" dir="rtl">
       {/* Content Type Management */}
-      <div className="flex items-center justify-between">
-        <Label>إدارة أنواع المحتوى والتصنيفات</Label>
+      <div className="flex items-center justify-between text-right">
+        <Label className="text-right">إدارة أنواع المحتوى والتصنيفات</Label>
         {onContentTypesChange && (
           <ContentTypeManagement 
             contentTypes={contentTypes} 
@@ -143,8 +142,8 @@ export function ContentTypeSelector({
 
       {/* Content Type Selection */}
       <div className="grid gap-3">
-        <div className="flex items-center justify-between">
-          <Label htmlFor="post-type">نوع المحتوى</Label>
+        <div className="flex items-center justify-between text-right">
+          <Label htmlFor="post-type" className="text-right">نوع المحتوى</Label>
           {selectedContentType && (
             <Dialog key={`category-dialog-${selectedContentType._id}`}>
               <DialogTrigger asChild>
@@ -174,36 +173,39 @@ export function ContentTypeSelector({
           )}
         </div>
         <Select value={value} onValueChange={onChange}>
-          <SelectTrigger className="border-vintage-border">
+          <SelectTrigger className="border-vintage-border text-right flex-row-reverse">
             <SelectValue placeholder="اختر نوع المحتوى" />
           </SelectTrigger>
-          <SelectContent>
+          <SelectContent className="text-right">
             {contentTypes.map((type) => {
               // Calculate category count for each content type using the same filtering logic
               const typeContentCategories = allCategories.filter(
                 category => category.contentTypeId === type._id && !category.isDefault
               )
               
-              // Filter out duplicates within the same content type based on name
+              // Filter out duplicates within the same content type based on label
               const uniqueTypeContentCategories: Category[] = []
-              const seenTypeNames = new Set<string>()
+              const seenTypeLabels = new Set<string>()
               
               typeContentCategories.forEach(category => {
-                if (!seenTypeNames.has(category.name)) {
-                  seenTypeNames.add(category.name)
+                if (!seenTypeLabels.has(category.label)) {
+                  seenTypeLabels.add(category.label)
                   uniqueTypeContentCategories.push(category)
                 }
               })
               
               
+              const isSelected = value === type.label;
               return (
-                <SelectItem key={type._id} value={type.label}>
-                  <div className="flex items-center justify-between w-full">
-                    <div className="flex items-center gap-2">
+                <SelectItem key={type._id} value={type.label} className="text-right [&>span:first-child]:hidden">
+                  <div className="flex items-center gap-2 w-full">
+                    <div className="flex items-center gap-2 flex-row-reverse">
                       {getIconComponent(type.icon)}
                       <span>{type.label}</span>
                     </div>
-                  
+                    {isSelected && (
+                      <span className="mr-auto text-xs">✓</span>
+                    )}
                   </div>
                 </SelectItem>
               )

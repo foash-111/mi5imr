@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
-import { getUserNotifications, getUserByEmail } from "@/backend/lib/db"
+import { getUserNotifications, getUserByEmail, deleteAllNotifications } from "@/backend/lib/db"
 
 export async function GET(request: NextRequest) {
   try {
@@ -24,5 +24,23 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     console.error("Error fetching notifications:", error)
     return NextResponse.json({ error: "Failed to fetch notifications" }, { status: 500 })
+  }
+}
+
+export async function DELETE(request: NextRequest) {
+  try {
+    const session = await getServerSession()
+    if (!session?.user?.email) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
+    }
+    const user = await getUserByEmail(session.user.email)
+    if (!user) {
+      return NextResponse.json({ error: "User not found" }, { status: 404 })
+    }
+    const deletedCount = await deleteAllNotifications(user._id!.toString())
+    return NextResponse.json({ deletedCount })
+  } catch (error) {
+    console.error("Error deleting all notifications:", error)
+    return NextResponse.json({ error: "Failed to delete notifications" }, { status: 500 })
   }
 }

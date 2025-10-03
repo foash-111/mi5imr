@@ -2,7 +2,8 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card"
@@ -14,8 +15,17 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useToast } from "@/hooks/use-toast"
 import { Mail, Phone, MapPin, Send, CheckCircle } from "lucide-react"
 
+interface ContactLocation {
+  address: string
+  mapUrl?: string  // For footer link (normal Google Maps URL)
+  embedUrl?: string // For iframe (embed URL)
+}
+
 export default function ContactPage() {
   const { toast } = useToast()
+  const { data: session } = useSession()
+  const isAdmin = !!session?.user?.isAdmin
+
   const [name, setName] = useState("")
   const [email, setEmail] = useState("")
   const [subject, setSubject] = useState("")
@@ -23,80 +33,225 @@ export default function ContactPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isSubmitted, setIsSubmitted] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const [contactEmail, setContactEmail] = useState("")
+  const [contactPhone, setContactPhone] = useState("")
+  const [contactLocation, setContactLocation] = useState<ContactLocation>({
+    address: "القاهرة، مصر",
+    mapUrl: "",
+    embedUrl: ""
+  })
+  const [isEditing, setIsEditing] = useState(false)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    async function fetchSettings() {
+      setLoading(true)
+      try {
+        const res = await fetch("/api/settings")
+        const data = await res.json()
+        if (data) {
+          setContactEmail(data.contactEmail || "")
+          setContactPhone(data.contactPhone || "")
+          setContactLocation(data.contactLocation || contactLocation)
+        }
+      } finally {
+        setLoading(false)
+      }
+    }
+    fetchSettings()
+    // eslint-disable-next-line
+  }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsSubmitting(true)
 
-    // Simulate form submission
-    setTimeout(() => {
-      setIsSubmitting(false)
-      setIsSubmitted(true)
+    try {
+      const response = await fetch("/api/contact", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, email, subject, message }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "فشل في إرسال الرسالة")
+      }
 
       toast({
         title: "تم إرسال رسالتك",
         description: "سنقوم بالرد عليك في أقرب وقت ممكن. شكراً لتواصلك معنا.",
       })
 
-      // Reset form
+      setIsSubmitted(true)
       setName("")
       setEmail("")
       setSubject("")
       setMessage("")
-    }, 1500)
+    } catch (error) {
+      console.error("Failed to submit contact message:", error)
+      toast({
+        title: "خطأ في الإرسال",
+        description: error instanceof Error ? error.message : "فشل في إرسال الرسالة",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
+
+  async function handleSave() {
+    // Always extract the embedUrl from the input before saving
+    const cleanEmbedUrl = extractEmbedUrl(contactLocation.embedInput || contactLocation.embedUrl || "");
+    const contactLocationToSave = {
+      ...contactLocation,
+      embedUrl: cleanEmbedUrl,
+    };
+    console.log('Saving contact info:', JSON.stringify({
+      contactEmail,
+      contactPhone,
+      contactLocation: contactLocationToSave
+    }, null, 2));
+    const res = await fetch("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contactEmail,
+        contactPhone,
+        contactLocation: contactLocationToSave,
+      }),
+    });
+    if (res.ok) setIsEditing(false);
+  }
+
+  if (loading) return <div className="text-center py-12">جاري التحميل...</div>
+
+  // Helper to extract the `src` from an iframe string, or return the input as-is if it's a URL.
+ function extractEmbedUrl(input: string): string {
+   // Decode HTML entities (like &quot;)
+   const decoded = input.replace(/&quot;/g, '"').replace(/&amp;/g, '&');
+ 
+   // Try to extract the src from iframe tag
+   const match = decoded.match(/<iframe[^>]+src=["']([^"']+)["']/i);
+   if (match) return match[1];
+ 
+   // If input is already a URL, return as is
+   if (/^https?:\/\//i.test(input.trim())) return input.trim();
+ 
+   // Fallback: return original input
+   return input;
+ }
+ 
 
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
       <Navbar />
-      <main className="flex-1 container py-8">
-        <div className="max-w-5xl mx-auto">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-bold mb-2">اتصل بنا</h1>
-            <p className="text-muted-foreground">نحن هنا للإجابة على استفساراتك ومساعدتك في أي وقت</p>
+      <main className="flex-1 container py-12">
+        <div className="max-w-4xl mx-auto">
+          <div className="text-center mb-12">
+            <h1 className="text-4xl font-bold mb-4">تواصل معنا</h1>
+            <p className="text-xl text-muted-foreground">
+              نحن هنا للإجابة على استفساراتك والاستماع إلى اقتراحاتك
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            {/* Contact Info Cards */}
-            <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden">
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <div className="h-12 w-12 rounded-full bg-vintage-accent/10 flex items-center justify-center mb-4">
-                  <Mail className="h-6 w-6 text-vintage-accent" />
-                </div>
-                <h3 className="font-bold mb-2">البريد الإلكتروني</h3>
-                <p className="text-muted-foreground mb-2">راسلنا عبر البريد الإلكتروني</p>
-                <a href="mailto:info@mukhaimer.com" className="text-vintage-accent hover:underline">
-                  info@mukhaimer.com
-                </a>
-              </CardContent>
-            </Card>
+          <div className="grid md:grid-cols-2 gap-8">
+            {/* Contact Information */}
+            <div className="space-y-6">
+              <Card className="border-vintage-border backdrop-blur-sm overflow-hidden">
+                <CardHeader>
+                  <CardTitle className="text-xl">معلومات التواصل</CardTitle>
+                  <CardDescription>يمكنك التواصل معنا من خلال الطرق التالية</CardDescription>
+                </CardHeader>
+                <CardContent className="space-y-4">
+                  <div className="flex items-center gap-3">
+                    <div className="bg-vintage-accent/10 p-2 rounded-full">
+                      <Mail className="h-5 w-5 text-vintage-accent" />
+                    </div>
+                    <div>
+                      <p className="font-medium">البريد الإلكتروني</p>
+                      {isAdmin && isEditing ? (
+                        <Input value={contactEmail} onChange={e => setContactEmail(e.target.value)} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">{contactEmail}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="bg-vintage-accent/10 p-2 rounded-full">
+                      <Phone className="h-5 w-5 text-vintage-accent" />
+                    </div>
+                    <div>
+                      <p className="font-medium">الهاتف</p>
+                      {isAdmin && isEditing ? (
+                        <Input value={contactPhone} onChange={e => setContactPhone(e.target.value)} />
+                      ) : (
+                        <p className="text-sm text-muted-foreground">{contactPhone}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <div className="bg-vintage-accent/10 p-2 rounded-full">
+                      <MapPin className="h-5 w-5 text-vintage-accent" />
+                    </div>
+                    <div className="w-full">
+                      <p className="font-medium">العنوان</p>
+                      {isAdmin && isEditing ? (
+                        <>
+                          <Input value={contactLocation.address} onChange={e => setContactLocation({ ...contactLocation, address: e.target.value })} className="mb-2" />
+                          <Input
+                            type="text"
+                            placeholder="رابط خريطة جوجل (لرابط في التذييل)"
+                            value={contactLocation.mapUrl || ""}
+                            onChange={e => setContactLocation({ ...contactLocation, mapUrl: e.target.value })}
+                            className="mb-2"
+                          />
+                         <Input
+  type="text"
+  placeholder="رابط إعادة إنتاج الخريطة (لنافذة الخريطة)"
+  value={contactLocation.embedInput || ""}
+  onChange={e => setContactLocation({ ...contactLocation, embedInput: e.target.value })}
+  onBlur={e =>
+    setContactLocation({
+      ...contactLocation,
+      embedInput: e.target.value,
+      embedUrl: extractEmbedUrl(e.target.value),
+    })
+  }
+  className="mb-2"
+/>
 
-            <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden">
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <div className="h-12 w-12 rounded-full bg-vintage-accent/10 flex items-center justify-center mb-4">
-                  <Phone className="h-6 w-6 text-vintage-accent" />
+                          <div className="text-xs text-muted-foreground mb-2">
+                            <p>• رابط الخريطة: أي رابط من خرائط جوجل (مثل رابط المشاركة)</p>
+                            <p>• رابط الإعادة: من "مشاركة" → "إعادة إنتاج خريطة" في خرائط جوجل</p>
+                          </div>
+                        </>
+                      ) : (
+                        <p className="text-sm text-muted-foreground">{contactLocation.address}</p>
+                      )}
                 </div>
-                <h3 className="font-bold mb-2">الهاتف</h3>
-                <p className="text-muted-foreground mb-2">اتصل بنا مباشرة</p>
-                <a href="tel:+201234567890" className="text-vintage-accent hover:underline">
-                  +20 123 456 7890
-                </a>
-              </CardContent>
-            </Card>
-
-            <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden">
-              <CardContent className="p-6 flex flex-col items-center text-center">
-                <div className="h-12 w-12 rounded-full bg-vintage-accent/10 flex items-center justify-center mb-4">
-                  <MapPin className="h-6 w-6 text-vintage-accent" />
                 </div>
-                <h3 className="font-bold mb-2">العنوان</h3>
-                <p className="text-muted-foreground mb-2">مقرنا الرئيسي</p>
-                <address className="not-italic">القاهرة، مصر</address>
+                  {isAdmin && (
+                    <div className="flex gap-2 mt-4">
+                      {isEditing ? (
+                        <>
+                          <Button onClick={handleSave} className="bg-vintage-accent text-white">حفظ</Button>
+                          <Button variant="outline" onClick={() => setIsEditing(false)}>إلغاء</Button>
+                        </>
+                      ) : (
+                        <Button variant="outline" onClick={() => setIsEditing(true)}>تعديل</Button>
+                      )}
+                </div>
+                  )}
               </CardContent>
             </Card>
           </div>
 
           {/* Contact Form */}
-          <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mt-8">
+            <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden">
             <CardHeader>
               <CardTitle className="text-xl">أرسل لنا رسالة</CardTitle>
               <CardDescription>يمكنك التواصل معنا مباشرة من خلال هذا النموذج</CardDescription>
@@ -118,7 +273,6 @@ export default function ContactPage() {
                 </div>
               ) : (
                 <form onSubmit={handleSubmit} className="space-y-4">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="name">الاسم</Label>
                       <Input
@@ -128,8 +282,10 @@ export default function ContactPage() {
                         placeholder="أدخل اسمك"
                         className="border-vintage-border"
                         required
+                        disabled={isSubmitting}
                       />
                     </div>
+
                     <div className="space-y-2">
                       <Label htmlFor="email">البريد الإلكتروني</Label>
                       <Input
@@ -140,8 +296,8 @@ export default function ContactPage() {
                         placeholder="أدخل بريدك الإلكتروني"
                         className="border-vintage-border"
                         required
+                        disabled={isSubmitting}
                       />
-                    </div>
                   </div>
 
                   <div className="space-y-2">
@@ -170,43 +326,57 @@ export default function ContactPage() {
                       placeholder="اكتب رسالتك هنا..."
                       className="min-h-[150px] border-vintage-border"
                       required
+                        disabled={isSubmitting}
                     />
                   </div>
 
                   <Button
                     type="submit"
-                    className="bg-vintage-accent hover:bg-vintage-accent/90 text-white"
+                      className="w-full bg-vintage-accent hover:bg-vintage-accent/90 text-white"
                     disabled={isSubmitting}
                   >
                     {isSubmitting ? (
-                      "جاري الإرسال..."
+                        <div className="flex items-center gap-2">
+                          <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                          جاري الإرسال...
+                        </div>
                     ) : (
-                      <>
-                        <Send className="ml-2 h-4 w-4" />
+                        <div className="flex items-center gap-2">
+                          <Send className="h-4 w-4" />
                         إرسال الرسالة
-                      </>
+                        </div>
                     )}
                   </Button>
                 </form>
               )}
             </CardContent>
           </Card>
+          </div>
 
-          {/* Map */}
-          <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden mt-8">
-            <CardContent className="p-0">
-              <div className="relative h-80 w-full">
-                <iframe
-                  src="https://www.google.com/maps/embed?pb=!1m18!1m12!1m3!1d55251.37809421403!2d31.209651899999998!3d30.059488!2m3!1f0!2f0!3f0!3m2!1i1024!2i768!4f13.1!3m3!1m2!1s0x14583fa60b21beeb%3A0x79dfb296e8423bba!2z2KfZhNmC2KfZh9ix2KnYjCDZhdit2KfZgdi42Kkg2KfZhNmC2KfZh9ix2KnigKw!5e0!3m2!1sar!2seg!4v1651234567890!5m2!1sar!2seg"
-                  className="absolute inset-0 w-full h-full border-0"
-                  allowFullScreen
-                  loading="lazy"
-                  referrerPolicy="no-referrer-when-downgrade"
-                  title="خريطة موقعنا"
-                ></iframe>
+          {/* Google Maps Embed */}
+          <div className="mt-12 rounded-lg overflow-hidden border border-vintage-border">
+                {contactLocation.embedUrl && (
+                  <div className="my-4">
+                    <a
+                      href={contactLocation.mapUrl || contactLocation.embedUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-vintage-accent underline block mb-2"
+                    >
+                      عرض الموقع على الخريطة
+                    </a>
+                    <iframe
+                      src={contactLocation.embedUrl}
+                      width="100%"
+                      height="350"
+                      style={{ border: 0 }}
+                      allowFullScreen
+                      loading="lazy"
+                      referrerPolicy="no-referrer-when-downgrade"
+                    ></iframe>
+                  </div>
+                )}
               </div>
-            </CardContent>
-          </Card>
         </div>
       </main>
       <Footer />

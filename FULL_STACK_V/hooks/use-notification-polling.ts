@@ -23,12 +23,15 @@ export function useNotificationPolling() {
           if (latest) {
             // Always redirect to the post URL
             let url = "/"
-            if (latest.contentId) {
+            if (latest.slug) {
+              url = `/content/${latest.slug}`
+            } else if (latest.contentId) {
               url = `/content/${latest.contentId}`
             }
             // Show clickable toast
             toast({
-              title: latest.type === 'new_post' ? latest.title : latest.message,
+              title: latest.title,
+              description: latest.message,
               duration: 8000,
               action: {
                 label: 'عرض',

@@ -114,6 +114,12 @@ export async function getContent(
   return res.json()
 }
 
+export async function getPaginatedContent({ limit = 20, skip = 0 } = {}) {
+  const res = await fetch(`/api/content?limit=${limit}&skip=${skip}`)
+  if (!res.ok) throw new Error("Failed to fetch paginated content")
+  return res.json()
+}
+
 export async function getContentById(id: string) {
   const res = await fetch(`/api/content/${id}`)
   if (!res.ok) throw new Error("Failed to fetch content")
@@ -433,5 +439,38 @@ export async function exportDashboardReport(format: 'pdf' | 'csv' | 'json' = 'js
 export async function getRelatedContent(contentId: string, limit: number = 6) {
   const res = await fetch(`/api/related-content?contentId=${contentId}&limit=${limit}`)
   if (!res.ok) throw new Error("Failed to fetch related content")
+  return res.json()
+}
+
+// User Management
+export async function getAllUsersWithActivity() {
+  const res = await fetch("/api/users")
+  if (!res.ok) throw new Error("Failed to fetch users")
+  return res.json()
+}
+
+export async function blockUser(userId: string, blocked: boolean) {
+  const res = await fetch("/api/users", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ userId, blocked }),
+  })
+  if (!res.ok) throw new Error("Failed to update user status")
+  return res.json()
+}
+
+// Content Statistics
+export async function getContentWithStats() {
+  const res = await fetch("/api/content/stats")
+  if (!res.ok) throw new Error("Failed to fetch content statistics")
+  return res.json()
+}
+
+// Increment content views
+export async function incrementContentViews(contentId: string) {
+  const res = await fetch(`/api/content/${contentId}/view`, {
+    method: "POST",
+  })
+  if (!res.ok) throw new Error("Failed to increment content views")
   return res.json()
 }

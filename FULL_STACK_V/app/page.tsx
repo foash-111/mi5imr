@@ -1,21 +1,43 @@
-'use client'
 import React from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
-import { FeaturedContent } from "@/components/featured-content"
-import { FeedbackWall } from "@/components/feedback-wall"
-import { Newsletter } from "@/components/newsletter"
 import { BookOpen, Coffee } from "lucide-react"
 import Link from "next/link"
-import { useSession } from "next-auth/react"
+import dynamic from 'next/dynamic'
 
+// Lazy load client-only components
+const FeaturedContent = dynamic(() => import("@/components/featured-content").then(mod => ({ default: mod.FeaturedContent })), {
+  loading: () => <div className="h-64 bg-vintage-paper-dark/10 animate-pulse rounded-md" />
+})
 
-export default function Home() {
+const FeedbackWall = dynamic(() => import("@/components/feedback-wall").then(mod => ({ default: mod.FeedbackWall })), {
+  loading: () => <div className="h-64 bg-vintage-paper-dark/10 animate-pulse rounded-md" />
+})
 
-	const { data: session } = useSession()
-	const user = session?.user;
+const Newsletter = dynamic(() => import("@/components/newsletter").then(mod => ({ default: mod.Newsletter })), {
+  loading: () => <div className="h-32 bg-vintage-paper-dark/10 animate-pulse rounded-md" />
+})
+
+const ClientAuthButton = dynamic(() => import("@/components/client-auth-button"), {
+  loading: () => <div className="h-12 w-48 bg-vintage-paper-dark/10 animate-pulse rounded-md" />
+})
+
+// Server-side data fetching
+async function getAboutContent() {
+  try {
+    // For server-side rendering, we'd need to make this work without the session context
+    // For now, return default content
+    return "كاتب وحكواتي يسعى لنقل تجاربه وأفكاره من خلال الكلمات. يؤمن بأن القصص هي جسر للتواصل بين الثقافات والأجيال، وأن الكتابة هي وسيلة للتعبير عن الذات واكتشاف العالم."
+  } catch (error) {
+    console.error("Failed to fetch about content:", error)
+    return "كاتب وحكواتي يسعى لنقل تجاربه وأفكاره من خلال الكلمات. يؤمن بأن القصص هي جسر للتواصل بين الثقافات والأجيال، وأن الكتابة هي وسيلة للتعبير عن الذات واكتشاف العالم."
+  }
+}
+
+export default async function Home() {
+  const aboutContent = await getAboutContent()
 
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
@@ -35,14 +57,7 @@ export default function Home() {
               منصة للقصص والحكايات والتأملات، حيث تجتمع الكلمات لتنسج عالماً من الخيال والمعرفة
             </p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              {!user || !user.email ? (
-    						<Link href="/auth/login">
-										<Button size="lg" className="bg-vintage-accent hover:bg-vintage-accent/90 text-white w-full sm:w-auto">
-											تسجيل الدخول بحساب جوجل
-										</Button>
-									</Link>
-								) :
-							 null}
+              <ClientAuthButton />
               <Link href="/feed">
                 <Button
                   size="lg"
@@ -73,17 +88,12 @@ export default function Home() {
         {/* About Section */}
         <section className="py-16 px-4 bg-vintage-paper-dark/10">
           <div className="max-w-4xl mx-auto">
-            <Card className="border-vintage-border  backdrop-blur-sm">
+            <Card className="border-vintage-border backdrop-blur-sm">
               <CardContent className="p-8">
                 <h2 className="text-3xl font-bold mb-6 text-center">من هو مخيمر؟</h2>
-                <p className="text-lg leading-relaxed mb-6">
-                  كاتب وحكواتي يسعى لنقل تجاربه وأفكاره من خلال الكلمات. يؤمن بأن القصص هي جسر للتواصل بين الثقافات
-                  والأجيال، وأن الكتابة هي وسيلة للتعبير عن الذات واكتشاف العالم.
-                </p>
-                <p className="text-lg leading-relaxed mb-6">
-                  تأسست هذه المنصة لتكون مساحة للإبداع والتأمل، حيث يمكن للقراء الاستمتاع بمجموعة متنوعة من المحتويات من
-                  مقالات وقصص وشعر وتأملات.
-                </p>
+                <div className="text-lg leading-relaxed whitespace-pre-wrap mb-6">
+                  {aboutContent}
+                </div>
                 <div className="text-center">
                   <Link href="/about">
                     <Button

@@ -5,6 +5,7 @@ import { ContentDetail } from "@/components/content-detail"
 import { Comments } from "@/components/comments"
 import { RelatedContent } from "@/components/related-content"
 import { YouMightAlsoLike } from "@/components/you-might-also-like"
+import { Loading } from "@/components/ui/loading"
 import { getContentBySlug } from "@/backend/lib/db"
 
 export default async function ContentPage({ params }: { params: { slug: string } }) {
@@ -44,18 +45,18 @@ export default async function ContentPage({ params }: { params: { slug: string }
       <main className="flex-1 container py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2">
-            <Suspense fallback={<div>Loading content...</div>}>
-              <ContentDetail slug={awaitedParams.slug} initialContent={content} />
+            <Suspense fallback={<Loading variant="content" text="جاري تحميل المحتوى..." />}>
+              <ContentDetail slug={awaitedParams.slug} initialContent={content || undefined} />
             </Suspense>
-            <Suspense fallback={<div>Loading comments...</div>}>
+            <Suspense fallback={<Loading variant="content" text="جاري تحميل التعليقات..." />}>
               <Comments slug={awaitedParams.slug} contentId={contentId} />
             </Suspense>
-            <Suspense fallback={<div>Loading related content...</div>}>
+            <Suspense fallback={<Loading variant="content" text="جاري تحميل المحتوى المرتبط..." />}>
               <YouMightAlsoLike contentId={contentId} currentSlug={awaitedParams.slug} />
             </Suspense>
           </div>
           <div className="lg:col-span-1">
-            <Suspense fallback={<div>Loading related content...</div>}>
+            <Suspense fallback={<Loading variant="content" text="جاري تحميل المحتوى المرتبط..." />}>
               <RelatedContent slug={awaitedParams.slug} contentId={contentId} />
             </Suspense>
           </div>

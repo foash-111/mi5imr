@@ -40,7 +40,6 @@ export function DefaultCategoriesSection({
   const [isLoading, setIsLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [currentCategory, setCurrentCategory] = useState<Category | null>(null)
-  const [newCategoryName, setNewCategoryName] = useState("")
   const [newCategoryLabel, setNewCategoryLabel] = useState("")
 
   // Update local state when prop changes
@@ -81,10 +80,10 @@ export function DefaultCategoriesSection({
   }, [toast, propDefaultCategories.length])
 
   const handleAddDefaultCategory = async () => {
-    if (!newCategoryName.trim() || !newCategoryLabel.trim()) {
+    if (!newCategoryLabel.trim()) {
       toast({
         title: "بيانات ناقصة",
-        description: "يرجى إدخال اسم ووصف التصنيف",
+        description: "يرجى إدخال اسم التصنيف",
         variant: "destructive",
       })
       return
@@ -92,10 +91,6 @@ export function DefaultCategoriesSection({
 
     try {
       const newCategory = {
-        name: newCategoryName
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^\w-]+/g, ""),
         label: newCategoryLabel,
         isDefault: true,
       }
@@ -112,7 +107,6 @@ export function DefaultCategoriesSection({
         const createdCategory = await response.json()
         const updatedCategories = [...defaultCategories, createdCategory]
         setDefaultCategories(updatedCategories)
-        setNewCategoryName("")
         setNewCategoryLabel("")
 
         // Trigger refresh in parent component
@@ -165,7 +159,6 @@ export function DefaultCategoriesSection({
 
         setDefaultCategories(updatedCategories)
         setCurrentCategory(null)
-        setNewCategoryName("")
         setNewCategoryLabel("")
         setIsEditing(false)
 
@@ -226,7 +219,6 @@ export function DefaultCategoriesSection({
 
   const startEditingDefaultCategory = (category: Category) => {
     setCurrentCategory(category)
-    setNewCategoryName(category.name)
     setNewCategoryLabel(category.label)
     setIsEditing(true)
   }
@@ -261,7 +253,6 @@ export function DefaultCategoriesSection({
                   >
                     <div className="flex items-center gap-2">
                       <span>{category.label}</span>
-                      <span className="text-xs text-muted-foreground">({category.name})</span>
                     </div>
                     <div className="flex gap-1">
                       <Button variant="ghost" size="sm" onClick={() => startEditingDefaultCategory(category)}>
@@ -291,26 +282,13 @@ export function DefaultCategoriesSection({
                   {isEditing ? "تعديل تصنيف افتراضي" : "إضافة تصنيف افتراضي جديد"}
                 </h4>
                 <div className="space-y-3">
-                  {!isEditing && (
-                    <div className="grid gap-1">
-                      <Label htmlFor="default-category-name">المعرف (ID)</Label>
-                      <Input
-                        id="default-category-name"
-                        value={newCategoryName}
-                        onChange={(e) => setNewCategoryName(e.target.value)}
-                        placeholder="مثال: general, featured"
-                        className="border-vintage-border"
-                      />
-                      <p className="text-xs text-muted-foreground">سيتم تحويله تلقائياً إلى معرف صالح</p>
-                    </div>
-                  )}
                   <div className="grid gap-1">
                     <Label htmlFor="default-category-label">الاسم المعروض</Label>
                     <Input
                       id="default-category-label"
                       value={newCategoryLabel}
                       onChange={(e) => setNewCategoryLabel(e.target.value)}
-                      placeholder="مثال: عام، مميز"
+                      placeholder="مثال: تطوير الذات، فهم الذات"
                       className="border-vintage-border"
                     />
                   </div>
@@ -321,7 +299,6 @@ export function DefaultCategoriesSection({
                         onClick={() => {
                           setIsEditing(false)
                           setCurrentCategory(null)
-                          setNewCategoryName("")
                           setNewCategoryLabel("")
                         }}
                       >

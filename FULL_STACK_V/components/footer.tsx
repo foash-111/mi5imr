@@ -1,19 +1,51 @@
+"use client"
+
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { Facebook, Twitter, Youtube, Mail, Phone } from "lucide-react"
+import { Facebook, Youtube, Mail, Phone } from "lucide-react"
+import { FaXTwitter } from 'react-icons/fa6';
+import { FaReddit } from 'react-icons/fa';
+import { DynamicFooter } from "./DynamicFooter"
+
+interface SocialLinks {
+  facebook?: string
+  twitter?: string
+  youtube?: string
+  reddit?: string
+}
 
 export function Footer() {
+  const [socialLinks, setSocialLinks] = useState<SocialLinks>({})
+
+  // Fetch social links from settings
+  useEffect(() => {
+    const fetchSocialLinks = async () => {
+      try {
+        const response = await fetch("/api/settings")
+        if (response.ok) {
+          const data = await response.json()
+          setSocialLinks(data.socialLinks || {})
+        }
+      } catch (error) {
+        console.error("Failed to fetch social links:", error)
+      }
+    }
+
+    fetchSocialLinks()
+  }, [])
+
   return (
     <footer className="bg-vintage-paper-dark/10 border-t border-vintage-border">
       <div className="container py-8 md:py-12">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
-          <div>
+        <div className="grid grid-cols-1 md:grid-cols-4 lg:grid-cols-6 gap-8 items-start">
+          <div className="md:col-span-2 lg:col-span-3 flex flex-col items-center md:items-start">
             <h3 className="text-lg font-bold mb-4">مخيمر</h3>
             <p className="text-sm text-muted-foreground mb-4">
               منصة للقصص والحكايات والتأملات، حيث تجتمع الكلمات لتنسج عالماً من الخيال والمعرفة
             </p>
             <div className="flex items-center gap-2">
               <a
-                href="https://facebook.com"
+                href={socialLinks.facebook || "#"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-vintage-ink hover:text-vintage-accent"
@@ -22,16 +54,16 @@ export function Footer() {
                 <span className="sr-only">فيسبوك</span>
               </a>
               <a
-                href="https://twitter.com"
+                href={socialLinks.twitter || "#"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-vintage-ink hover:text-vintage-accent"
               >
-                <Twitter className="h-5 w-5" />
+                <FaXTwitter className="h-5 w-5" />
                 <span className="sr-only">تويتر</span>
               </a>
               <a
-                href="https://youtube.com"
+                href={socialLinks.youtube || "#"}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-vintage-ink hover:text-vintage-accent"
@@ -39,10 +71,19 @@ export function Footer() {
                 <Youtube className="h-5 w-5" />
                 <span className="sr-only">يوتيوب</span>
               </a>
+              <a
+                href={socialLinks.reddit || "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-vintage-ink hover:text-vintage-accent"
+              >
+                <FaReddit className="h-5 w-5" />
+                <span className="sr-only">ريديت</span>
+              </a>
             </div>
           </div>
           
-          <div>
+          <div className="md:col-span-2 lg:col-span-2 flex flex-col items-center md:items-start">
             <h3 className="text-lg font-bold mb-4">روابط مفيدة</h3>
             <ul className="space-y-2 text-sm">
               <li>
@@ -60,6 +101,13 @@ export function Footer() {
                   الأسئلة الشائعة
                 </Link>
               </li>
+            </ul>
+          </div>
+
+          {/* Policies Section */}
+          <div className="md:col-span-2 lg:col-span-1 flex flex-col items-center md:items-start">
+            <h3 className="text-lg font-bold mb-4">السياسات</h3>
+            <ul className="space-y-2 text-sm">
               <li>
                 <Link href="/privacy" className="text-muted-foreground hover:text-vintage-accent">
                   سياسة الخصوصية
@@ -77,24 +125,11 @@ export function Footer() {
               </li>
             </ul>
           </div>
-          <div>
-            <h3 className="text-lg font-bold mb-4">اتصل بنا</h3>
-            <ul className="space-y-2 text-sm">
-              <li className="flex items-center gap-2 text-muted-foreground">
-                <Mail className="h-4 w-4" />
-                <span>info@mukhaimer.com</span>
-              </li>
-              <li className="flex items-center gap-2 text-muted-foreground">
-                <Phone className="h-4 w-4" />
-                <span>+1234567890</span>
-              </li>
-            </ul>
-          </div>
+          
         </div>
-        <div className="border-t border-vintage-border mt-8 pt-8 text-center text-sm text-muted-foreground">
-          <p>© {new Date().getFullYear()} مخيمر. جميع الحقوق محفوظة.</p>
-        </div>
-      </div>
+    {/* Footer */}
+    <DynamicFooter />
+    </div>
     </footer>
   )
 }

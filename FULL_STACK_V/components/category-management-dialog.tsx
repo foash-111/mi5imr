@@ -26,43 +26,42 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
   const [isLoading, setIsLoading] = useState(true)
   const [isEditing, setIsEditing] = useState(false)
   const [currentCategory, setCurrentCategory] = useState<Category | null>(null)
-  const [newCategoryName, setNewCategoryName] = useState("")
   const [newCategoryLabel, setNewCategoryLabel] = useState("")
+
+  // Helper to (re)fetch categories for this content type
+  const refetchCategories = async () => {
+    setIsLoading(true)
+    try {
+      const response = await fetch(`/api/categories?contentTypeId=${contentTypeId}`)
+      if (response.ok) {
+        const data = await response.json()
+        const specificCategories = data.filter(
+          (cat: Category) => cat.contentTypeId === contentTypeId && !cat.isDefault,
+        )
+        setCategories(specificCategories)
+      }
+    } catch (error) {
+      console.error("Error fetching categories:", error)
+      toast({
+        title: "خطأ في تحميل التصنيفات",
+        description: "تعذر تحميل التصنيفات",
+        variant: "destructive",
+      })
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   // Fetch categories for the selected content type
   useEffect(() => {
-    async function fetchCategories() {
-      setIsLoading(true)
-      try {
-        const response = await fetch(`/api/categories?contentTypeId=${contentTypeId}`)
-        if (response.ok) {
-          const data = await response.json()
-          // Filter to show only categories specific to this content type (not default ones)
-          const specificCategories = data.filter(
-            (cat: Category) => cat.contentTypeId === contentTypeId && !cat.isDefault,
-          )
-          setCategories(specificCategories)
-        }
-      } catch (error) {
-        console.error("Error fetching categories:", error)
-        toast({
-          title: "خطأ في تحميل التصنيفات",
-          description: "تعذر تحميل التصنيفات",
-          variant: "destructive",
-        })
-      } finally {
-        setIsLoading(false)
-      }
-    }
-
-    fetchCategories()
-  }, [contentTypeId, toast])
+    refetchCategories()
+  }, [contentTypeId])
 
   const handleAddCategory = async () => {
-    if (!newCategoryName.trim() || !newCategoryLabel.trim()) {
+    if (!newCategoryLabel.trim()) {
       toast({
         title: "بيانات ناقصة",
-        description: "يرجى إدخال اسم ووصف التصنيف",
+        description: "يرجى إدخال اسم التصنيف",
         variant: "destructive",
       })
       return
@@ -70,10 +69,6 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
 
     try {
       const newCategory = {
-        name: newCategoryName
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^\w-]+/g, ""),
         label: newCategoryLabel,
         contentTypeId,
         isDefault: false,
@@ -90,7 +85,6 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
       if (response.ok) {
         const createdCategory = await response.json()
         setCategories([...categories, createdCategory])
-        setNewCategoryName("")
         setNewCategoryLabel("")
 
         toast({
@@ -107,7 +101,7 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
         
         // Also refresh the categories list in this dialog
         setTimeout(() => {
-          fetchCategories()
+          refetchCategories()
         }, 500)
       } else {
         const errorData = await response.json()
@@ -162,7 +156,6 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
 
         setCategories(updatedCategories)
         setCurrentCategory(null)
-        setNewCategoryName("")
         setNewCategoryLabel("")
         setIsEditing(false)
 
@@ -180,7 +173,7 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
         
         // Also refresh the categories list in this dialog
         setTimeout(() => {
-          fetchCategories()
+          refetchCategories()
         }, 500)
       } else {
         throw new Error("Failed to update category")
@@ -219,7 +212,7 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
         
         // Also refresh the categories list in this dialog
         setTimeout(() => {
-          fetchCategories()
+          refetchCategories()
         }, 500)
       } else {
         throw new Error("Failed to delete category")
@@ -236,7 +229,6 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
 
   const startEditingCategory = (category: Category) => {
     setCurrentCategory(category)
-    setNewCategoryName(category.name)
     setNewCategoryLabel(category.label)
     setIsEditing(true)
   }
@@ -255,7 +247,6 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
           >
             <div className="flex items-center gap-2">
               <span>{category.label}</span>
-              <span className="text-xs text-muted-foreground">({category.name})</span>
             </div>
             <div className="flex gap-1">
               <Button variant="ghost" size="sm" onClick={() => startEditingCategory(category)}>
@@ -282,21 +273,8 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
 
       <div className="border rounded-md border-vintage-border p-4">
         <h4 className="font-medium text-sm mb-2">{isEditing ? "تعديل تصنيف" : "إضافة تصنيف جديد"}</h4>
-        <div className="space-y-3">
-          {!isEditing && (
-            <div className="grid gap-1">
-              <Label htmlFor="category-name">المعرف (ID)</Label>
-              <Input
-                id="category-name"
-                value={newCategoryName}
-                onChange={(e) => setNewCategoryName(e.target.value)}
-                placeholder="مثال: drama, comedy"
-                className="border-vintage-border"
-              />
-              <p className="text-xs text-muted-foreground">سيتم تحويله تلقائياً إلى معرف صالح</p>
-            </div>
-          )}
-          <div className="grid gap-1">
+      <div className="space-y-3">
+        <div className="grid gap-1">
             <Label htmlFor="category-label">الاسم المعروض</Label>
             <Input
               id="category-label"
@@ -313,7 +291,6 @@ export function CategoryManagementDialog({ contentTypeId, onCategoriesRefresh }:
                 onClick={() => {
                   setIsEditing(false)
                   setCurrentCategory(null)
-                  setNewCategoryName("")
                   setNewCategoryLabel("")
                 }}
               >

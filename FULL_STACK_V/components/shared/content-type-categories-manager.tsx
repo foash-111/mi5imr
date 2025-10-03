@@ -17,7 +17,6 @@ import { useToast } from "@/hooks/use-toast"
 
 interface Category {
   _id: string
-  name: string
   label: string
   isDefault: boolean
   contentTypeId?: string
@@ -80,10 +79,9 @@ const CategoryContent = ({
                       key={category._id}
                       className="flex items-center justify-between p-2 border rounded-md border-vintage-border mb-2"
                     >
-                      <div className="flex items-center gap-2">
-                        <span>{category.label}</span>
-                        <span className="text-xs text-muted-foreground">({category.name})</span>
-                      </div>
+                    <div className="flex items-center gap-2">
+                      <span>{category.label}</span>
+                    </div>
                       <div className="flex gap-1">
                         <Button variant="ghost" size="sm" onClick={() => startEditingCategory(category)}>
                           <Pencil className="h-4 w-4" />
@@ -122,7 +120,7 @@ const CategoryContent = ({
               >
                 <div className="flex items-center gap-2">
                   <span>{category.label}</span>
-                  <span className="text-xs text-muted-foreground">({category.name})</span>
+                
                 </div>
                 <div className="flex gap-1">
                   <Button variant="ghost" size="sm" onClick={() => startEditingCategory(category)}>
@@ -157,20 +155,6 @@ const CategoryContent = ({
         {isEditing ? "تعديل تصنيف المحتوى" : "إضافة تصنيف محتوى جديد"}
       </h4>
       <div className="space-y-3">
-        {!isEditing && (
-          <div className="grid gap-1">
-            <Label htmlFor="content-category-name">المعرف (ID)</Label>
-            <Input
-              id="content-category-name"
-              key={`name-input-${isEditing}`}
-              value={newCategoryName}
-              onChange={(e) => setNewCategoryName(e.target.value)}
-              placeholder="مثال: drama, comedy"
-              className="border-vintage-border"
-            />
-            <p className="text-xs text-muted-foreground">سيتم تحويله تلقائياً إلى معرف صالح</p>
-          </div>
-        )}
         <div className="grid gap-1">
           <Label htmlFor="content-category-label">الاسم المعروض</Label>
           <Input
@@ -286,10 +270,10 @@ export function ContentTypeCategoriesManager({
   }, [contentTypeId, toast, allCategories, defaultCategories])
 
   const handleAddCategory = useCallback(async () => {
-    if (!newCategoryName.trim() || !newCategoryLabel.trim()) {
+    if (!newCategoryLabel.trim()) {
       toast({
         title: "بيانات ناقصة",
-        description: "يرجى إدخال اسم ووصف التصنيف",
+        description: "يرجى إدخال اسم التصنيف",
         variant: "destructive",
       })
       return
@@ -297,10 +281,6 @@ export function ContentTypeCategoriesManager({
 
     try {
       const newCategory = {
-        name: newCategoryName
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^\w-]+/g, ""),
         label: newCategoryLabel,
         contentTypeId: contentTypeId,
         isDefault: false,
@@ -325,7 +305,6 @@ export function ContentTypeCategoriesManager({
           setCategories([...categories, createdCategory])
         }
         
-        setNewCategoryName("")
         setNewCategoryLabel("")
 
         // Trigger refresh in parent component
@@ -446,7 +425,6 @@ export function ContentTypeCategoriesManager({
 
   const startEditingCategory = useCallback((category: Category) => {
     setCurrentCategory(category)
-    setNewCategoryName(category.name)
     setNewCategoryLabel(category.label)
     setIsEditing(true)
   }, [])

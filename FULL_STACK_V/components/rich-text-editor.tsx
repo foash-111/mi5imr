@@ -23,7 +23,7 @@ import {
   ImageIcon,
   YoutubeIcon,
 } from "lucide-react"
-import { useState, useRef } from "react"
+import { useState, useRef, useEffect } from "react"
 import { uploadToFalStorageClient } from "@/lib/upload-utils"
 import { useToast } from "@/hooks/use-toast"
 
@@ -35,10 +35,7 @@ interface RichTextEditorProps {
 
 export function RichTextEditor({ content, onChange, placeholder = "ابدأ الكتابة هنا..." }: RichTextEditorProps) {
   const { toast } = useToast()
-  const [isUploading, setIsUploading] = useState(false)
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const linkInputRef = useRef<HTMLInputElement>(null)
-  const youtubeInputRef = useRef<HTMLInputElement>(null)
+  const editorRef = useRef<any>(null)
 
   const editor = useEditor({
     extensions: [
@@ -74,80 +71,12 @@ export function RichTextEditor({ content, onChange, placeholder = "ابدأ ال
     },
   })
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!editor || !e.target.files || e.target.files.length === 0) return
-
-    const file = e.target.files[0]
-    if (!file.type.includes("image/")) {
-      toast({
-        title: "خطأ في تحميل الصورة",
-        description: "يرجى اختيار ملف صورة صالح",
-        variant: "destructive",
-      })
-      return
-    }
-
-    try {
-      setIsUploading(true)
-      const imageUrl = await uploadToFalStorageClient(file)
-
-      editor.chain().focus().setImage({ src: imageUrl }).run()
-
-      toast({
-        title: "تم تحميل الصورة",
-        description: "تم إضافة الصورة بنجاح",
-      })
-    } catch (error) {
-      console.error("Error uploading image:", error)
-      toast({
-        title: "خطأ في تحميل الصورة",
-        description: "حدث خطأ أثناء تحميل الصورة. يرجى المحاولة مرة أخرى",
-        variant: "destructive",
-      })
-    } finally {
-      setIsUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ""
-    }
-  }
-
-  const handleAddLink = () => {
-    if (!editor) return
-
-    const url = linkInputRef.current?.value
-    if (!url) return
-
-    // Check if text is selected
-    if (editor.state.selection.empty) {
-      toast({
-        title: "لم يتم تحديد نص",
-        description: "يرجى تحديد النص الذي تريد تحويله إلى رابط",
-        variant: "destructive",
-      })
-      return
-    }
-
-    editor.chain().focus().setLink({ href: url }).run()
-
-    if (linkInputRef.current) linkInputRef.current.value = ""
-  }
-
-  const handleAddYoutube = () => {
-    if (!editor) return
-
-    const url = youtubeInputRef.current?.value
-    if (!url) return
-
-    editor.chain().focus().setYoutubeVideo({ src: url }).run()
-
-    if (youtubeInputRef.current) youtubeInputRef.current.value = ""
-  }
-
   if (!editor) {
     return null
   }
 
   return (
-    <div className="border rounded-md border-vintage-border">
+    <div className="border rounded-md border-vintage-border" ref={editorRef}>
       <div className="flex flex-wrap gap-1 p-2 border-b border-vintage-border bg-vintage-paper-dark/5">
         <Button
           type="button"
@@ -212,133 +141,6 @@ export function RichTextEditor({ content, onChange, placeholder = "ابدأ ال
         >
           <Quote className="h-4 w-4" />
         </Button>
-        <div className="h-6 border-r border-vintage-border mx-1"></div>
-        <Button
-          type="button"
-          variant="ghost"
-          size="sm"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={isUploading}
-        >
-          <ImageIcon className="h-4 w-4" />
-          <input type="file" ref={fileInputRef} className="hidden" accept="image/*" onChange={handleImageUpload} />
-        </Button>
-        <div className="relative">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              const dialog = document.getElementById("link-dialog")
-              if (dialog) {
-                // @ts-ignore
-                dialog.showModal()
-              }
-            }}
-          >
-            <LinkIcon className="h-4 w-4" />
-          </Button>
-          <dialog id="link-dialog" className="p-4 rounded-md shadow-lg border border-vintage-border bg-white">
-            <h3 className="text-lg font-medium mb-2">إضافة رابط</h3>
-            <div className="mb-4">
-              <input
-                ref={linkInputRef}
-                type="url"
-                placeholder="https://example.com"
-                className="w-full p-2 border rounded-md border-vintage-border"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const dialog = document.getElementById("link-dialog")
-                  if (dialog) {
-                    // @ts-ignore
-                    dialog.close()
-                  }
-                }}
-              >
-                إلغاء
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="bg-vintage-accent hover:bg-vintage-accent/90 text-white"
-                onClick={() => {
-                  handleAddLink()
-                  const dialog = document.getElementById("link-dialog")
-                  if (dialog) {
-                    // @ts-ignore
-                    dialog.close()
-                  }
-                }}
-              >
-                إضافة
-              </Button>
-            </div>
-          </dialog>
-        </div>
-        <div className="relative">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              const dialog = document.getElementById("youtube-dialog")
-              if (dialog) {
-                // @ts-ignore
-                dialog.showModal()
-              }
-            }}
-          >
-            <YoutubeIcon className="h-4 w-4" />
-          </Button>
-          <dialog id="youtube-dialog" className="p-4 rounded-md shadow-lg border border-vintage-border bg-white">
-            <h3 className="text-lg font-medium mb-2">إضافة فيديو يوتيوب</h3>
-            <div className="mb-4">
-              <input
-                ref={youtubeInputRef}
-                type="url"
-                placeholder="https://youtube.com/watch?v=..."
-                className="w-full p-2 border rounded-md border-vintage-border"
-              />
-            </div>
-            <div className="flex justify-end gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  const dialog = document.getElementById("youtube-dialog")
-                  if (dialog) {
-                    // @ts-ignore
-                    dialog.close()
-                  }
-                }}
-              >
-                إلغاء
-              </Button>
-              <Button
-                type="button"
-                size="sm"
-                className="bg-vintage-accent hover:bg-vintage-accent/90 text-white"
-                onClick={() => {
-                  handleAddYoutube()
-                  const dialog = document.getElementById("youtube-dialog")
-                  if (dialog) {
-                    // @ts-ignore
-                    dialog.close()
-                  }
-                }}
-              >
-                إضافة
-              </Button>
-            </div>
-          </dialog>
-        </div>
         <div className="h-6 border-r border-vintage-border mx-1"></div>
         <Button
           type="button"

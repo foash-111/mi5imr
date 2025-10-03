@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getCommentsByContentId, createComment, getUserByEmail, createNotification } from "@/backend/lib/db"
+import { getCommentsByContentId, createComment, getUserByEmail, createNotification, getContentById } from "@/backend/lib/db"
 import { getServerSession } from "next-auth"
 import { ObjectId } from "mongodb"
 import { getDb } from "@/backend/lib/db"
@@ -67,16 +67,56 @@ export async function POST(request: NextRequest) {
       status: "approved", // Auto-approve all comments
     })
 
+    // Notification logic for content author (only for top-level comments, not replies)
+    if (!data.parentId) {
+      try {
+        const content = await getContentById(data.contentId)
+        console.log("Content author check for comment:", {
+          contentAuthorId: content?.author._id?.toString(),
+          currentUserId: user._id!.toString(),
+          contentTitle: content?.title,
+          isDifferentUser: content?.author._id?.toString() !== user._id!.toString(),
+          contentAuthorName: content?.author.name,
+          currentUserName: user.name
+        })
+        
+        if (content && content.author._id && content.author._id.toString() !== user._id!.toString()) {
+          console.log("Creating notification for content author comment:", content.author._id.toString())
+          await createNotification({
+            userId: content.author._id,
+            type: 'content_comment',
+            contentId: data.contentId,
+            commentId: comment._id,
+            slug: content.slug,
+            title: 'تعليق جديد على محتواك',
+            message: `قام ${user.name} بالتعليق على محتواك: ${content.title}`,
+            isRead: false,
+            createdAt: new Date(),
+          })
+          console.log("Notification created successfully for content comment")
+        } else {
+          console.log("No notification created for comment - same user or missing author")
+        }
+      } catch (e) {
+        console.error('Failed to create content author notification:', e)
+      }
+    }
+
     // Notification logic for replies
     if (data.parentId) {
       try {
         const db = await getDb()
         const parentComment = await db.collection("comments").findOne({ _id: new ObjectId(data.parentId) })
         if (parentComment && parentComment.userId && parentComment.userId.toString() !== user._id!.toString()) {
+          // Get content to get the slug
+          const replyContent = await getContentById(data.contentId)
+          
           await createNotification({
             userId: parentComment.userId,
             type: 'comment_reply',
+            contentId: data.contentId,
             commentId: parentComment._id,
+            slug: replyContent?.slug,
             title: 'تم الرد على تعليقك',
             message: `قام ${user.name} بالرد على تعليقك`,
             isRead: false,

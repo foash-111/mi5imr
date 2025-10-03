@@ -5,11 +5,11 @@ import { Card, CardContent } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import { BookOpen, FileText, Heart, Bookmark, Share2, Calendar, Edit, Loader2, AlertCircle } from "lucide-react"
+import { BookOpen, FileText, Heart, Bookmark, Share2, Calendar, Edit, Trash2, Loader2, AlertCircle, X } from "lucide-react"
 import Image from "next/image"
 import { useSession } from "next-auth/react"
 import { useToast } from "@/hooks/use-toast"
-import { getContentBySlug, toggleLike, toggleBookmark, getContentById, checkLikeStatus, checkBookmarkStatus } from "@/lib/api-client"
+import { getContentBySlug, toggleLike, toggleBookmark, getContentById, checkLikeStatus, checkBookmarkStatus, deleteContent } from "@/lib/api-client"
 import { useRouter } from "next/navigation"
 
 interface Content {
@@ -45,6 +45,8 @@ export function ContentDetail({ slug, initialContent }: ContentDetailProps) {
   const [error, setError] = useState<string | null>(null)
   const [isLiked, setIsLiked] = useState(false)
   const [isSaved, setIsSaved] = useState(false)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
   const { toast } = useToast()
 
   useEffect(() => {
@@ -236,6 +238,43 @@ export function ContentDetail({ slug, initialContent }: ContentDetailProps) {
     router.push(`/admin/edit/${content._id}`)
   }
 
+  const handleDelete = async () => {
+    if (!content) return
+    
+    setShowDeleteDialog(true)
+  }
+
+  const confirmDelete = async () => {
+    if (!content) return
+
+    try {
+      setIsDeleting(true)
+      await deleteContent(content._id)
+      
+      toast({
+        title: "تم الحذف بنجاح",
+        description: "تم حذف المحتوى بنجاح",
+      })
+      
+      // Redirect to feed page
+      router.push("/feed")
+    } catch (err) {
+      console.error("Error deleting content:", err)
+      toast({
+        title: "حدث خطأ",
+        description: "تعذر حذف المحتوى",
+        variant: "destructive",
+      })
+    } finally {
+      setIsDeleting(false)
+      setShowDeleteDialog(false)
+    }
+  }
+
+  const cancelDelete = () => {
+    setShowDeleteDialog(false)
+  }
+
   const getIconForType = (type: string) => {
     switch (type) {
       case "articles":
@@ -406,6 +445,12 @@ export function ContentDetail({ slug, initialContent }: ContentDetailProps) {
                   <span>تعديل</span>
                 </Button>
               )}
+              {isAuthenticated && isAdmin && (
+                <Button variant="outline" size="sm" className="border-red-200 text-red-600 hover:bg-red-50" onClick={handleDelete}>
+                  <Trash2 className="h-4 w-4 mr-1" />
+                  <span>حذف</span>
+                </Button>
+              )}
               <Button variant="ghost" size="sm" className={isLiked ? "text-red-500" : ""} onClick={handleLike}>
                 <Heart className="h-4 w-4 mr-1" fill={isLiked ? "currentColor" : "none"} />
                 <span>{content.likesCount}</span>
@@ -455,6 +500,70 @@ export function ContentDetail({ slug, initialContent }: ContentDetailProps) {
           </div>
         </div>
       </CardContent>
+
+      {/* Delete Confirmation Dialog */}
+      {showDeleteDialog && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-md w-full p-6 border border-vintage-border">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold text-red-600">تأكيد الحذف</h3>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={cancelDelete}
+                className="h-8 w-8 p-0"
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+            
+            <div className="mb-6">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="h-12 w-12 bg-red-100 rounded-full flex items-center justify-center">
+                  <Trash2 className="h-6 w-6 text-red-600" />
+                </div>
+                <div>
+                  <h4 className="font-medium text-gray-900">حذف المحتوى</h4>
+                  <p className="text-sm text-gray-500">{content.title}</p>
+                </div>
+              </div>
+              
+              <p className="text-sm text-gray-600 leading-relaxed">
+                هل أنت متأكد من حذف هذا المحتوى؟ هذا الإجراء لا يمكن التراجع عنه وسيتم حذف المحتوى نهائياً من قاعدة البيانات.
+              </p>
+            </div>
+            
+            <div className="flex gap-3 justify-end">
+              <Button
+                variant="outline"
+                onClick={cancelDelete}
+                disabled={isDeleting}
+                className="border-vintage-border"
+              >
+                إلغاء
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={confirmDelete}
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isDeleting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    جاري الحذف...
+                  </>
+                ) : (
+                  <>
+                    <Trash2 className="h-4 w-4 mr-2" />
+                    حذف نهائي
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
     </Card>
   )
 }

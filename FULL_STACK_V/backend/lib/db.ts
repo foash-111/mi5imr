@@ -1,11 +1,11 @@
 import clientPromise from "./mongodb"
 import { ObjectId } from "mongodb"
-import type { User, Content, Comment, ContentType, Category, Subscriber, EmailLog, Notification } from "../models/types"
+import type { User, Content, Comment, ContentType, Category, Subscriber, EmailLog, Notification, Feedback, ContactMessage, Settings } from "../models/types"
 import nodemailer from "nodemailer"
 
 // Database and collections names
 const DB_NAME = "arabic-storytelling"
-const COLLECTIONS = {
+export const COLLECTIONS = {
   USERS: "users",
   CONTENT: "content",
   COMMENTS: "comments",
@@ -254,7 +254,7 @@ export async function getCategories(contentTypeId?: string): Promise<Category[]>
 }
 
 // Get categories with content counts
-export async function getCategoriesWithCounts(contentTypeId?: string): Promise<(Category & { count: number })[]> {
+export async function getCategoriesWithCounts(contentTypeIds?: string[] | string): Promise<(Category & { count: number })[]> {
   const db = await getDb()
   
   // Step 1: Aggregate counts from content collection
@@ -268,14 +268,14 @@ export async function getCategoriesWithCounts(contentTypeId?: string): Promise<(
       // Group by category name to count documents
       {
         $group: {
-          _id: "$categories.name",
+          _id: "$categories.label",
           count: { $sum: 1 },
         },
       },
       // Project to simplify output
       {
         $project: {
-          name: "$_id",
+          label: "$_id",
           count: 1,
           _id: 0,
         },
@@ -285,9 +285,13 @@ export async function getCategoriesWithCounts(contentTypeId?: string): Promise<(
 
   // Step 2: Fetch all categories
   let query: any = {}
-  if (contentTypeId) {
+  if (contentTypeIds && (Array.isArray(contentTypeIds) ? contentTypeIds.length > 0 : true)) {
+    const ids = Array.isArray(contentTypeIds) ? contentTypeIds : [contentTypeIds]
     query = {
-      $or: [{ contentTypeId: new ObjectId(contentTypeId) }, { isDefault: true }],
+      $or: [
+        { contentTypeId: { $in: ids.map((id) => new ObjectId(id)) } },
+        { isDefault: true }
+      ]
     }
   }
 
@@ -296,7 +300,7 @@ export async function getCategoriesWithCounts(contentTypeId?: string): Promise<(
   // Step 3: Merge counts with categories
   const result = categories.map((cat) => ({
     ...cat,
-    count: categoryCounts.find((c) => c.name === cat.name)?.count || 0,
+    count: categoryCounts.find((c) => c.label === cat.label)?.count || 0,
   }));
 
   return serializeArray(result);
@@ -312,7 +316,10 @@ export async function getCategoriesByContentType(contentTypeId: string): Promise
   const db = await getDb()
   const categories = await db
     .collection<Category>(COLLECTIONS.CATEGORIES)
-    .find({ contentTypeId: new ObjectId(contentTypeId), isDefault: false })
+    .find({ 
+      contentTypeId: new ObjectId(contentTypeId), 
+      isDefault: false 
+    })
     .sort({ createdAt: 1 })
     .toArray()
   return serializeArray(categories)
@@ -357,12 +364,15 @@ export async function getAllContent(
     userId?: string
   } = {},
 ): Promise<{ content: Content[], totalCount: number }> {
-  const { published = true, contentType, category, tag, featured, sortBy = "newest", limit = 10, skip = 0, createdAt, search, userId } = options
+  const { published, contentType, category, tag, featured, sortBy = "newest", limit = 30, skip = 0, createdAt, search, userId } = options
 
   const db = await getDb()
 
   // Build query
-  const query: any = { published }
+  const query: any = {}
+  if (published !== undefined) {
+    query.published = published
+  }
 
   if (contentType) {
     query["contentType.label"] = Array.isArray(contentType)
@@ -434,6 +444,14 @@ export async function getAllContent(
   )
   const commentsCountMap = Object.fromEntries(commentsCounts.map(c => [c._id.toString(), c.commentsCount]))
 
+  // Ensure all content items have required fields with defaults
+  const safeContentList = contentList.map(content => ({
+    ...content,
+    author: content.author || { name: '—', avatar: '' },
+    contentType: content.contentType || { label: '—' },
+    commentsCount: commentsCountMap[content._id.toString()] || 0,
+  }))
+
   // If userId is provided, fetch like/save status in bulk
   if (userId) {
     const contentIds = contentList.map(content => new ObjectId(content._id))
@@ -451,21 +469,17 @@ export async function getAllContent(
     const savedContentIds = new Set(saves.map(save => save.contentId.toString()))
 
     return {
-      content: contentList.map(content => ({
+      content: safeContentList.map(content => ({
         ...content,
         isLiked: likedContentIds.has(content._id.toString()),
         isSaved: savedContentIds.has(content._id.toString()),
-        commentsCount: commentsCountMap[content._id.toString()] || 0,
       })),
       totalCount,
     }
   }
 
   return {
-    content: contentList.map(content => ({
-      ...content,
-      commentsCount: commentsCountMap[content._id.toString()] || 0,
-    })),
+    content: safeContentList,
     totalCount,
   }
 }
@@ -510,8 +524,26 @@ export async function updateContent(id: string, content: Partial<Content>): Prom
 
 export async function deleteContent(id: string): Promise<boolean> {
   const db = await getDb()
-  const result = await db.collection(COLLECTIONS.CONTENT).deleteOne({ _id: new ObjectId(id) })
-  return result.deletedCount > 0
+  const contentObjectId = new ObjectId(id)
+  
+  try {
+    // Delete all comments related to this content
+    await db.collection(COLLECTIONS.COMMENTS).deleteMany({ contentId: contentObjectId })
+    
+    // Delete all likes related to this content
+    await db.collection(COLLECTIONS.CONTENT_LIKES).deleteMany({ contentId: contentObjectId })
+    
+    // Delete all bookmarks related to this content
+    await db.collection(COLLECTIONS.BOOKMARKS).deleteMany({ contentId: contentObjectId })
+    
+    // Delete the content itself
+    const result = await db.collection(COLLECTIONS.CONTENT).deleteOne({ _id: contentObjectId })
+    
+    return result.deletedCount > 0
+  } catch (error) {
+    console.error("Error deleting content and related data:", error)
+    return false
+  }
 }
 
 export async function incrementContentViews(id: string): Promise<boolean> {
@@ -1137,6 +1169,18 @@ export async function getUnreadNotificationCount(userId: string): Promise<number
   })
 }
 
+export async function deleteNotification(id: string): Promise<boolean> {
+  const db = await getDb()
+  const result = await db.collection(COLLECTIONS.NOTIFICATIONS).deleteOne({ _id: new ObjectId(id) })
+  return result.deletedCount > 0
+}
+
+export async function deleteAllNotifications(userId: string): Promise<number> {
+  const db = await getDb()
+  const result = await db.collection(COLLECTIONS.NOTIFICATIONS).deleteMany({ userId: new ObjectId(userId) })
+  return result.deletedCount || 0
+}
+
 // Helper functions
 function generateUnsubscribeToken(): string {
   return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
@@ -1235,18 +1279,42 @@ export async function initializeDb() {
     console.warn("⚠️ Some indexes may already exist:", error)
   }
 
+  // Ensure categories collection has proper indexes
+  try {
+    // Create indexes for categories collection
+    await db.collection(COLLECTIONS.CATEGORIES).createIndex({ label: 1 }, { unique: true })
+    await db.collection(COLLECTIONS.CATEGORIES).createIndex({ isDefault: 1 })
+    await db.collection(COLLECTIONS.CATEGORIES).createIndex({ contentTypeId: 1 })
+    await db.collection(COLLECTIONS.CATEGORIES).createIndex({ createdAt: 1 })
+    
+    console.log("✅ Categories collection indexes created/verified")
+  } catch (error) {
+    console.warn("⚠️ Some category indexes may already exist:", error)
+  }
+
+  // Ensure content types collection has proper indexes
+  try {
+    // Create indexes for content types collection
+    await db.collection(COLLECTIONS.CONTENT_TYPES).createIndex({ label: 1 }, { unique: true })
+    await db.collection(COLLECTIONS.CONTENT_TYPES).createIndex({ createdAt: 1 })
+    
+    console.log("✅ Content types collection indexes created/verified")
+  } catch (error) {
+    console.warn("⚠️ Some content type indexes may already exist:", error)
+  }
+
   // Check if content types exist
   const contentTypesCount = await db.collection(COLLECTIONS.CONTENT_TYPES).countDocuments()
 
   if (contentTypesCount === 0) {
     // Insert default content types
     const defaultContentTypes = [
-      { name: "articles", label: "مقالات", icon: "FileText", createdAt: new Date(), updatedAt: new Date() },
-      { name: "stories", label: "حواديت", icon: "BookOpen", createdAt: new Date(), updatedAt: new Date() },
-      { name: "poetry", label: "شعر", icon: "Music", createdAt: new Date(), updatedAt: new Date() },
-      { name: "cinema", label: "سينما", icon: "Video", createdAt: new Date(), updatedAt: new Date() },
-      { name: "reflections", label: "تأملات", icon: "Coffee", createdAt: new Date(), updatedAt: new Date() },
-      { name: "podcasts", label: "بودكاست", icon: "Mic", createdAt: new Date(), updatedAt: new Date() },
+      { label: "مقالات", icon: "FileText", createdAt: new Date(), updatedAt: new Date() },
+      { label: "حواديت", icon: "BookOpen", createdAt: new Date(), updatedAt: new Date() },
+      { label: "شعر", icon: "Music", createdAt: new Date(), updatedAt: new Date() },
+      { label: "سينما", icon: "Video", createdAt: new Date(), updatedAt: new Date() },
+      { label: "تأملات", icon: "Coffee", createdAt: new Date(), updatedAt: new Date() },
+      { label: "بودكاست", icon: "Mic", createdAt: new Date(), updatedAt: new Date() },
     ]
 
     const result = await db.collection(COLLECTIONS.CONTENT_TYPES).insertMany(defaultContentTypes)
@@ -1598,9 +1666,14 @@ export async function getContent(options: GetContentOptions = {}): Promise<{ con
 
   // Add category filter with proper indexing
   if (options.category && options.category.length > 0) {
+    const objectIds = options.category.filter((id: string) => ObjectId.isValid(id)).map((id: string) => new ObjectId(id))
+    const rawIds = options.category
     pipeline.push({
       $match: {
-        "categories._id": { $in: options.category.map((cat: string) => new ObjectId(cat)) }
+        $or: [
+          { "categories._id": { $in: objectIds } },
+          { "categories._id": { $in: rawIds } }
+        ]
       }
     })
   }
@@ -1627,14 +1700,14 @@ export async function getContent(options: GetContentOptions = {}): Promise<{ con
     })
   }
 
-  // Add lookup for author and content type (optimized)
+  // Add lookup for author and content type (optimized) using distinct field names
   pipeline.push(
     {
       $lookup: {
         from: COLLECTIONS.USERS,
         localField: "authorId",
         foreignField: "_id",
-        as: "author",
+        as: "authorRef",
         pipeline: [
           { $project: { name: 1, avatar: 1, email: 1 } }
         ]
@@ -1645,7 +1718,7 @@ export async function getContent(options: GetContentOptions = {}): Promise<{ con
         from: COLLECTIONS.CONTENT_TYPES,
         localField: "contentTypeId",
         foreignField: "_id",
-        as: "contentType",
+        as: "contentTypeRef",
         pipeline: [
           { $project: { label: 1, name: 1, icon: 1 } }
         ]
@@ -1655,9 +1728,17 @@ export async function getContent(options: GetContentOptions = {}): Promise<{ con
 
   // Unwind arrays
   pipeline.push(
-    { $unwind: { path: "$author", preserveNullAndEmptyArrays: true } },
-    { $unwind: { path: "$contentType", preserveNullAndEmptyArrays: true } }
+    { $unwind: { path: "$authorRef", preserveNullAndEmptyArrays: true } },
+    { $unwind: { path: "$contentTypeRef", preserveNullAndEmptyArrays: true } }
   )
+
+  // Prefer embedded author/contentType, otherwise use looked-up refs
+  pipeline.push({
+    $addFields: {
+      author: { $ifNull: ["$author", "$authorRef"] },
+      contentType: { $ifNull: ["$contentType", "$contentTypeRef"] },
+    }
+  })
 
   // Add sort stage
   const sortStage: any = {}
@@ -1690,4 +1771,600 @@ export async function getContent(options: GetContentOptions = {}): Promise<{ con
   const content = await db.collection<Content>(COLLECTIONS.CONTENT).aggregate(pipeline).toArray() as Content[]
 
   return { content, totalCount }
+}
+
+// Enhanced user management functions
+export async function blockUser(userId: string, blocked: boolean): Promise<boolean> {
+  const db = await getDb()
+  const result = await db
+    .collection(COLLECTIONS.USERS)
+    .updateOne({ _id: new ObjectId(userId) }, { $set: { blocked, updatedAt: new Date() } })
+  return result.modifiedCount > 0
+}
+
+export async function getAllUsersWithActivity(): Promise<any[]> {
+  const db = await getDb()
+  
+  const users = await db.collection(COLLECTIONS.USERS).find({}).toArray()
+  
+  const usersWithActivity = await Promise.all(
+    users.map(async (user) => {
+      const userId = user._id
+      
+      // Get user's comments count
+      const commentsCount = await db.collection(COLLECTIONS.COMMENTS).countDocuments({
+        userId: userId
+      })
+      
+      // Get user's likes count
+      const likesCount = await db.collection(COLLECTIONS.CONTENT_LIKES).countDocuments({
+        userId: userId
+      })
+      
+      // Get user's bookmarks count
+      const bookmarksCount = await db.collection(COLLECTIONS.BOOKMARKS).countDocuments({
+        userId: userId
+      })
+      
+      // Get user's content count
+      const contentCreated = await db.collection(COLLECTIONS.CONTENT).countDocuments({
+        authorId: userId
+      })
+      
+      return {
+        ...user,
+        activity: {
+          commentsCount,
+          likesCount,
+          bookmarksCount,
+          lastLogin: user.lastLogin || null,
+          contentCreated
+        }
+      }
+    })
+  )
+  
+  return usersWithActivity
+}
+
+export async function getContentWithDetailedStats(): Promise<any[]> {
+  const db = await getDb()
+  
+  const content = await db.collection(COLLECTIONS.CONTENT)
+    .aggregate([
+      {
+        $lookup: {
+          from: COLLECTIONS.USERS,
+          localField: "authorId",
+          foreignField: "_id",
+          as: "author"
+        }
+      },
+      {
+        $lookup: {
+          from: COLLECTIONS.CONTENT_TYPES,
+          localField: "contentTypeId",
+          foreignField: "_id",
+          as: "contentType"
+        }
+      },
+      {
+        $unwind: "$author"
+      },
+      {
+        $unwind: "$contentType"
+      }
+    ]).toArray()
+  
+  const contentWithStats = await Promise.all(
+    content.map(async (item) => {
+      const contentId = item._id
+      
+      // Get total views
+      const totalViews = item.viewCount || 0
+      
+      // Get total likes
+      const totalLikes = await db.collection(COLLECTIONS.CONTENT_LIKES).countDocuments({
+        contentId: contentId
+      })
+      
+      // Get total comments
+      const totalComments = await db.collection(COLLECTIONS.COMMENTS).countDocuments({
+        contentId: contentId
+      })
+      
+      // Calculate engagement rate
+      const engagementRate = totalViews > 0 ? ((totalLikes + totalComments) / totalViews) * 100 : 0
+      
+      return {
+        ...item,
+        detailedStats: {
+          totalViews,
+          totalLikes,
+          totalComments,
+          engagementRate: Math.round(engagementRate * 100) / 100
+        }
+      }
+    })
+  )
+  
+  return contentWithStats
+}
+
+export async function getDashboardStats(): Promise<any> {
+  const db = await getDb()
+  
+  // User statistics
+  const totalUsers = await db.collection(COLLECTIONS.USERS).countDocuments()
+  const activeUsers = await db.collection(COLLECTIONS.USERS).countDocuments({ blocked: { $ne: true } })
+  const adminUsers = await db.collection(COLLECTIONS.USERS).countDocuments({ isAdmin: true })
+  
+  // Content statistics
+  const totalContent = await db.collection(COLLECTIONS.CONTENT).countDocuments()
+  const publishedContent = await db.collection(COLLECTIONS.CONTENT).countDocuments({ published: true })
+  const draftContent = await db.collection(COLLECTIONS.CONTENT).countDocuments({ published: false })
+  const featuredContent = await db.collection(COLLECTIONS.CONTENT).countDocuments({ featured: true })
+  
+  // Engagement statistics
+  const totalComments = await db.collection(COLLECTIONS.COMMENTS).countDocuments()
+  const approvedComments = await db.collection(COLLECTIONS.COMMENTS).countDocuments({ status: "approved" })
+  const pendingComments = await db.collection(COLLECTIONS.COMMENTS).countDocuments({ status: "pending" })
+  const rejectedComments = await db.collection(COLLECTIONS.COMMENTS).countDocuments({ status: "rejected" })
+  
+  const totalLikes = await db.collection(COLLECTIONS.CONTENT_LIKES).countDocuments()
+  
+  // Calculate total views
+  const contentWithViews = await db.collection(COLLECTIONS.CONTENT).find({}).toArray()
+  const totalViews = contentWithViews.reduce((sum, item) => sum + (item.viewCount || 0), 0)
+  
+  // Calculate average engagement
+  const averageEngagement = totalViews > 0 ? ((totalLikes + totalComments) / totalViews) * 100 : 0
+  
+  // Newsletter statistics (placeholder)
+  const totalSubscribers = 0
+  const activeSubscribers = 0
+  const newSubscribersThisMonth = 0
+  
+  // Performance metrics
+  const contentViewsPerDay = Math.round(totalViews / 30) // Assuming 30 days
+  const engagementRate = Math.round(averageEngagement * 100) / 100
+  const commentApprovalRate = totalComments > 0 ? Math.round((approvedComments / totalComments) * 100) : 0
+  
+  // Growth rate (placeholder - would need historical data)
+  const growthRate = 5.2 // Placeholder percentage
+  
+  return {
+    users: {
+      total: totalUsers,
+      active: activeUsers,
+      admins: adminUsers,
+      newThisMonth: Math.round(totalUsers * 0.1), // Placeholder
+      growthRate
+    },
+    content: {
+      total: totalContent,
+      published: publishedContent,
+      drafts: draftContent,
+      featured: featuredContent
+    },
+    engagement: {
+      totalComments,
+      approvedComments,
+      pendingComments,
+      rejectedComments,
+      totalLikes,
+      totalViews,
+      averageEngagement: Math.round(averageEngagement * 100) / 100
+    },
+    newsletter: {
+      totalSubscribers,
+      activeSubscribers,
+      newSubscribersThisMonth
+    },
+    performance: {
+      contentViewsPerDay,
+      engagementRate,
+      commentApprovalRate
+    }
+  }
+}
+
+// Feedback System Functions
+export async function createFeedback(feedback: Omit<Feedback, "_id">): Promise<Feedback> {
+  const db = await getDb()
+  const newFeedback: Feedback = {
+    ...feedback,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  }
+  const result = await db.collection("feedback").insertOne(newFeedback)
+  return { ...newFeedback, _id: result.insertedId }
+}
+
+export async function getAllFeedback(): Promise<Feedback[]> {
+  const db = await getDb()
+  const feedback = await db.collection("feedback")
+    .find({})
+    .sort({ createdAt: -1 })
+    .toArray()
+  
+  return serializeArray(feedback)
+}
+
+export async function getFeedbackById(id: string): Promise<Feedback | null> {
+  const db = await getDb()
+  const feedback = await db.collection("feedback").findOne({ _id: new ObjectId(id) })
+  
+  return feedback ? serializeDocument(feedback) : null
+}
+
+export async function updateFeedbackStatus(id: string, status: "pending" | "approved" | "replied" | "archived", isPublic?: boolean, adminNotes?: string): Promise<boolean> {
+  const db = await getDb()
+  const updateData: any = { 
+    status, 
+    updatedAt: new Date() 
+  }
+  if (isPublic !== undefined) updateData.isPublic = isPublic
+  if (adminNotes !== undefined) updateData.adminNotes = adminNotes
+  const result = await db.collection("feedback")
+    .updateOne({ _id: new ObjectId(id) }, { $set: updateData })
+  return result.modifiedCount > 0
+}
+
+export async function deleteFeedback(id: string): Promise<boolean> {
+  const db = await getDb()
+  const result = await db.collection("feedback").deleteOne({ _id: new ObjectId(id) })
+  return result.deletedCount > 0
+}
+
+export async function getPublicFeedback(): Promise<Feedback[]> {
+  const db = await getDb()
+  const feedback = await db.collection("feedback")
+    .find({ status: "approved", isPublic: true })
+    .sort({ createdAt: -1 })
+    .limit(10)
+    .toArray()
+  
+  return serializeArray(feedback)
+}
+
+export async function getFeedbackStats(): Promise<any> {
+  const db = await getDb()
+  
+  const total = await db.collection("feedback").countDocuments()
+  const pending = await db.collection("feedback").countDocuments({ status: "pending" })
+  const approved = await db.collection("feedback").countDocuments({ status: "approved" })
+  const rejected = await db.collection("feedback").countDocuments({ status: "rejected" })
+  const publicFeedback = await db.collection("feedback").countDocuments({ status: "approved", isPublic: true })
+  
+  return {
+    total,
+    pending,
+    approved,
+    rejected,
+    publicFeedback
+  }
+}
+
+// Contact System Functions
+export async function createContactMessage(contactMessage: Omit<ContactMessage, "_id">): Promise<ContactMessage> {
+  const db = await getDb()
+  const newContactMessage: ContactMessage = {
+    ...contactMessage,
+    createdAt: new Date(),
+    updatedAt: new Date()
+  }
+  
+  const result = await db.collection("contact_messages").insertOne(newContactMessage)
+  return { ...newContactMessage, _id: result.insertedId }
+}
+
+export async function getAllContactMessages(): Promise<ContactMessage[]> {
+  const db = await getDb()
+  const messages = await db.collection("contact_messages")
+    .find({})
+    .sort({ createdAt: -1 })
+    .toArray()
+  
+  return serializeArray(messages)
+}
+
+export async function getContactMessageById(id: string): Promise<ContactMessage | null> {
+  const db = await getDb()
+  const message = await db.collection("contact_messages").findOne({ _id: new ObjectId(id) })
+  
+  return message ? serializeDocument(message) : null
+}
+
+export async function updateContactMessageStatus(id: string, status: "unread" | "read" | "replied" | "archived"): Promise<boolean> {
+  const db = await getDb()
+  const result = await db.collection("contact_messages")
+    .updateOne(
+      { _id: new ObjectId(id) }, 
+      { $set: { status, updatedAt: new Date() } }
+    )
+  
+  return result.modifiedCount > 0
+}
+
+export async function replyToContactMessage(id: string, adminReply: string, repliedBy: string): Promise<boolean> {
+  const db = await getDb()
+  const result = await db.collection("contact_messages")
+    .updateOne(
+      { _id: new ObjectId(id) }, 
+      { 
+        $set: { 
+          adminReply, 
+          repliedBy: new ObjectId(repliedBy),
+          repliedAt: new Date(),
+          status: "replied",
+          updatedAt: new Date() 
+        } 
+      }
+    )
+  
+  return result.modifiedCount > 0
+}
+
+export async function deleteContactMessage(id: string): Promise<boolean> {
+  const db = await getDb()
+  const result = await db.collection("contact_messages").deleteOne({ _id: new ObjectId(id) })
+  return result.deletedCount > 0
+}
+
+export async function getContactMessageStats(): Promise<any> {
+  const db = await getDb()
+  
+  const total = await db.collection("contact_messages").countDocuments()
+  const unread = await db.collection("contact_messages").countDocuments({ status: "unread" })
+  const read = await db.collection("contact_messages").countDocuments({ status: "read" })
+  const replied = await db.collection("contact_messages").countDocuments({ status: "replied" })
+  const archived = await db.collection("contact_messages").countDocuments({ status: "archived" })
+  
+  return {
+    total,
+    unread,
+    read,
+    replied,
+    archived
+  }
+}
+
+// Seed test content data for dashboard analytics
+export async function seedTestContentData() {
+  const db = await getDb();
+  const now = new Date();
+  const contentTypes = [
+    { name: "articles", label: "مقالات", icon: "FileText" },
+    { name: "stories", label: "حواديت", icon: "BookOpen" },
+    { name: "poetry", label: "شعر", icon: "Music" },
+  ];
+  // Published content: last 10 days
+  for (let i = 0; i < 10; i++) {
+    const type = contentTypes[i % contentTypes.length];
+    await db.collection(COLLECTIONS.CONTENT).insertOne({
+      title: `Test Content ${i+1}`,
+      slug: `test-content-${i+1}`,
+      excerpt: `Excerpt for test content ${i+1}`,
+      coverImage: "",
+      author: {
+        _id: new ObjectId(),
+        name: `Author ${i+1}`,
+        avatar: ""
+      },
+      contentType: {
+        _id: new ObjectId(),
+        name: type.name,
+        label: type.label,
+        icon: type.icon
+      },
+      published: true,
+      featured: false,
+      createdAt: new Date(now.getTime() - i * 24 * 60 * 60 * 1000),
+      updatedAt: new Date(now.getTime() - i * 24 * 60 * 60 * 1000),
+      viewCount: 10 + i * 5,
+      likesCount: 2 + i,
+      commentsCount: 1 + (i % 3),
+      categories: [],
+      tags: []
+    });
+  }
+  // Draft content: last 10-12 days
+  for (let i = 0; i < 2; i++) {
+    const type = contentTypes[i % contentTypes.length];
+    await db.collection(COLLECTIONS.CONTENT).insertOne({
+      title: `Draft Content ${i+1}`,
+      slug: `draft-content-${i+1}`,
+      excerpt: `Draft excerpt ${i+1}`,
+      coverImage: "",
+      author: {
+        _id: new ObjectId(),
+        name: `Draft Author ${i+1}`,
+        avatar: ""
+      },
+      contentType: {
+        _id: new ObjectId(),
+        name: type.name,
+        label: type.label,
+        icon: type.icon
+      },
+      published: false,
+      featured: false,
+      createdAt: new Date(now.getTime() - (10 + i) * 24 * 60 * 60 * 1000),
+      updatedAt: new Date(now.getTime() - (10 + i) * 24 * 60 * 60 * 1000),
+      viewCount: 0,
+      likesCount: 0,
+      commentsCount: 0,
+      categories: [],
+      tags: []
+    });
+  }
+  // Featured content: last 12-14 days
+  for (let i = 0; i < 2; i++) {
+    const type = contentTypes[i % contentTypes.length];
+    await db.collection(COLLECTIONS.CONTENT).insertOne({
+      title: `Featured Content ${i+1}`,
+      slug: `featured-content-${i+1}`,
+      excerpt: `Featured excerpt ${i+1}`,
+      coverImage: "",
+      author: {
+        _id: new ObjectId(),
+        name: `Featured Author ${i+1}`,
+        avatar: ""
+      },
+      contentType: {
+        _id: new ObjectId(),
+        name: type.name,
+        label: type.label,
+        icon: type.icon
+      },
+      published: true,
+      featured: true,
+      createdAt: new Date(now.getTime() - (12 + i) * 24 * 60 * 60 * 1000),
+      updatedAt: new Date(now.getTime() - (12 + i) * 24 * 60 * 60 * 1000),
+      viewCount: 20 + i * 3,
+      likesCount: 5 + i,
+      commentsCount: 2 + i,
+      categories: [],
+      tags: []
+    });
+  }
+  return { ok: true };
+}
+
+// Settings (Contact Info)
+export async function getSettings(): Promise<Settings | null> {
+  const db = await getDb()
+  const settings = await db.collection("settings").findOne({})
+  return settings ? serializeDocument(settings) : null
+}
+
+export async function updateSettings(settings: Partial<Settings>, updatedBy?: string): Promise<boolean> {
+  const db = await getDb()
+  const updateData: any = { ...settings, updatedAt: new Date() }
+  if (updatedBy) updateData.updatedBy = new ObjectId(updatedBy)
+  const result = await db.collection("settings").updateOne({}, { $set: updateData }, { upsert: true })
+  return result.acknowledged
+}
+
+// Efficient dashboard stats methods
+export async function getContentCounts() {
+  const db = await getDb();
+  const total = await db.collection(COLLECTIONS.CONTENT).countDocuments({});
+  const published = await db.collection(COLLECTIONS.CONTENT).countDocuments({ published: true });
+  const drafts = await db.collection(COLLECTIONS.CONTENT).countDocuments({ published: false });
+  const featured = await db.collection(COLLECTIONS.CONTENT).countDocuments({ featured: true });
+  return { total, published, drafts, featured };
+}
+
+export async function getContentTypeDistribution() {
+  const db = await getDb();
+  const pipeline = [
+    { $group: { _id: "$contentType.label", count: { $sum: 1 } } },
+    { $project: { type: "$_id", count: 1, _id: 0 } }
+  ];
+  return db.collection(COLLECTIONS.CONTENT).aggregate(pipeline).toArray();
+}
+
+export async function getKeyMetrics() {
+  const db = await getDb();
+  const now = new Date();
+  const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  const sixtyDaysAgo = new Date(now.getTime() - 60 * 24 * 60 * 60 * 1000);
+
+  // Helper to calculate percent change
+  function percentChange(current: number, previous: number) {
+    if (previous === 0) return current === 0 ? 0 : 100;
+    return ((current - previous) / Math.abs(previous)) * 100;
+  }
+
+  // Aggregate for last 30 days
+  const pipelineCurrent = [
+    { $match: { createdAt: { $gte: thirtyDaysAgo } } },
+    {
+      $group: {
+        _id: null,
+        totalViews: { $sum: { $ifNull: ["$viewCount", 0] } },
+        totalLikes: { $sum: { $ifNull: ["$likesCount", 0] } },
+        totalComments: { $sum: { $ifNull: ["$commentsCount", 0] } },
+      }
+    }
+  ];
+  const resultCurrent = await db.collection(COLLECTIONS.CONTENT).aggregate(pipelineCurrent).toArray();
+  const { totalViews = 0, totalLikes = 0, totalComments = 0 } = resultCurrent[0] || {};
+
+  // Aggregate for previous 30 days
+  const pipelinePrev = [
+    { $match: { createdAt: { $gte: sixtyDaysAgo, $lt: thirtyDaysAgo } } },
+    {
+      $group: {
+        _id: null,
+        totalViews: { $sum: { $ifNull: ["$viewCount", 0] } },
+        totalLikes: { $sum: { $ifNull: ["$likesCount", 0] } },
+        totalComments: { $sum: { $ifNull: ["$commentsCount", 0] } },
+      }
+    }
+  ];
+  const resultPrev = await db.collection(COLLECTIONS.CONTENT).aggregate(pipelinePrev).toArray();
+  const { totalViews: prevViews = 0, totalLikes: prevLikes = 0, totalComments: prevComments = 0 } = resultPrev[0] || {};
+
+  // Calculate engagement rates
+  const engagementRate = ((totalLikes + totalComments) / Math.max(totalViews, 1)) * 100;
+  const prevEngagementRate = ((prevLikes + prevComments) / Math.max(prevViews, 1)) * 100;
+
+  // Calculate percent changes
+  const viewsChange = percentChange(totalViews, prevViews);
+  const likesChange = percentChange(totalLikes, prevLikes);
+  const commentsChange = percentChange(totalComments, prevComments);
+  const engagementChange = percentChange(engagementRate, prevEngagementRate);
+
+  return {
+    totalViews,
+    totalLikes,
+    totalComments,
+    engagementRate,
+    viewsChange,
+    likesChange,
+    commentsChange,
+    engagementChange
+  };
+}
+
+/**
+ * Returns performance metrics for the dashboard: growth rate, retention rate, average session time.
+ * - Growth rate: % increase in users this month vs last month
+ * - Retention rate: % of users active this month who were also active last month
+ * - Average session time: placeholder (requires session tracking)
+ */
+export async function getPerformanceMetrics() {
+  const db = await getDb();
+  const now = new Date();
+  const thisMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const twoMonthsAgo = new Date(now.getFullYear(), now.getMonth() - 2, 1);
+
+  // User growth rate
+  const usersThisMonth = await db.collection(COLLECTIONS.USERS).countDocuments({ createdAt: { $gte: thisMonth } });
+  const usersLastMonth = await db.collection(COLLECTIONS.USERS).countDocuments({ createdAt: { $gte: lastMonth, $lt: thisMonth } });
+  let growthRate = 0;
+  if (usersLastMonth === 0) growthRate = usersThisMonth > 0 ? 100 : 0;
+  else growthRate = ((usersThisMonth - usersLastMonth) / usersLastMonth) * 100;
+
+  // Retention rate (users who logged in this month and last month)
+  // Assume lastLogin is tracked on user
+  const usersActiveLastMonth = await db.collection(COLLECTIONS.USERS).find({ lastLogin: { $gte: lastMonth, $lt: thisMonth } }).toArray();
+  const usersActiveThisMonth = await db.collection(COLLECTIONS.USERS).find({ lastLogin: { $gte: thisMonth } }).toArray();
+  const retained = usersActiveThisMonth.filter(u => usersActiveLastMonth.some(lm => String(lm._id) === String(u._id)));
+  const retentionRate = usersActiveLastMonth.length > 0 ? (retained.length / usersActiveLastMonth.length) * 100 : 0;
+
+  // Average session time (placeholder, unless you have session logs)
+  // If you have a sessions collection, you can aggregate average duration for this month
+  // For now, return a placeholder value
+  const avgSessionTime = 4.2; // minutes, placeholder
+
+  return {
+    growthRate: Math.round(growthRate * 10) / 10,
+    retentionRate: Math.round(retentionRate * 10) / 10,
+    avgSessionTime
+  };
 }

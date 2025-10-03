@@ -3,6 +3,7 @@ import { useEffect } from "react"
 import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { PostForm } from "@/components/post-form"
+import { Loading } from "@/components/ui/loading"
 import { useRouter } from "next/navigation"
 import { useSession } from "next-auth/react"
 import { useToast } from "@/hooks/use-toast"
@@ -25,6 +26,11 @@ export default function CreatePostPage() {
       })
     }
   }, [status, session, router, toast])
+
+  // Show loading while checking session
+  if (status === "loading") {
+    return <Loading variant="page" text="جاري تحميل صفحة الإنشاء..." />
+  }
 
   // If not authenticated or not admin, don't render the page
   if (status !== "authenticated" || !session?.user?.isAdmin) {

@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { getContentById, updateContent, deleteContent, getUserByEmail } from "@/backend/lib/db"
+import { getContentById, updateContent, deleteContent, getUserByEmail, getCategories } from "@/backend/lib/db"
 import { getServerSession } from "next-auth"
 import { ObjectId } from "mongodb"
 import fs from "fs/promises"
@@ -105,6 +105,18 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
       coverImage = existingContent?.coverImage;
     }
 
+    // Resolve full category objects to keep label/isDefault for counts and filtering
+    const allCats = await getCategories()
+    const categoriesResolved = categoryIds
+      .map((id: string) => allCats.find((c) => c._id?.toString() === id))
+      .filter(Boolean)
+      .map((category: any) => ({
+        _id: new ObjectId(category._id),
+        name: category.name,
+        label: category.label,
+        isDefault: !!category.isDefault,
+      }))
+
     // Update content
     const success = await updateContent(awaitedParams.id, {
       title,
@@ -120,12 +132,11 @@ export async function PUT(request: NextRequest, { params }: { params: Promise<{ 
         }
         return {
           _id: new ObjectId(contentTypeId),
-          name: contentType.name,
           label: contentType.label,
           icon: contentType.icon,
         };
       })(),
-      categories: categoryIds.map((id: string) => ({ _id: new ObjectId(id) })),
+      categories: categoriesResolved,
       tags,
       externalUrl: externalUrl || undefined,
       published: published,

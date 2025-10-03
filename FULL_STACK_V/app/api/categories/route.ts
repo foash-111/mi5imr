@@ -1,12 +1,14 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getCategories, createCategory, getDefaultCategories, getCategoriesByContentType, getCategoriesWithCounts } from "@/backend/lib/db"
 import { getServerSession } from "next-auth"
+import { Category } from "@/backend/models/types"
 
 // GET /api/categories - Get categories (optionally filtered by content type or default)
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
     const contentTypeId = searchParams.get("contentTypeId")
+    const contentTypeIdsParam = searchParams.get("contentTypeIds")
     const defaultOnly = searchParams.get("default")
     const excludeDefault = searchParams.get("excludeDefault")
     const withCounts = searchParams.get("withCounts") === "true"
@@ -18,8 +20,14 @@ export async function GET(request: NextRequest) {
       // Only return categories specific to the content type, excluding default categories
       categories = await getCategoriesByContentType(contentTypeId)
     } else if (withCounts) {
-      // Return categories with content counts
-      categories = await getCategoriesWithCounts(contentTypeId || undefined)
+      // Return categories with content counts (optionally for multiple content types)
+      let ids: string[] | undefined = undefined
+      if (contentTypeIdsParam) {
+        ids = contentTypeIdsParam.split(",").filter(Boolean)
+      } else if (contentTypeId) {
+        ids = [contentTypeId]
+      }
+      categories = await getCategoriesWithCounts(ids)
     } else {
       categories = await getCategories(contentTypeId || undefined)
     }
@@ -44,21 +52,21 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
 
     // Validate required fields
-    if (!data.name || !data.label) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!data.label) {
+      return NextResponse.json({ error: "Missing required field: label" }, { status: 400 })
     }
 
-    // Check for duplicate categories - only among non-default categories for this content type
-    const existingCategories = await getCategoriesByContentType(data.contentTypeId)
-    const duplicateName = existingCategories.find(cat => cat.name === data.name)
+    // Check for duplicate categories
+    let existingCategories
+    if (data.isDefault) {
+      // For default categories, check against all default categories
+      existingCategories = await getDefaultCategories()
+    } else {
+      // For content type categories, check against categories for that content type
+      existingCategories = await getCategoriesByContentType(data.contentTypeId)
+    }
+    
     const duplicateLabel = existingCategories.find(cat => cat.label === data.label)
-
-    if (duplicateName) {
-      return NextResponse.json({ 
-        error: "تصنيف موجود بالفعل", 
-        details: `يوجد تصنيف بنفس المعرف "${data.name}"` 
-      }, { status: 409 })
-    }
 
     if (duplicateLabel) {
       return NextResponse.json({ 
@@ -67,14 +75,19 @@ export async function POST(request: NextRequest) {
       }, { status: 409 })
     }
 
-    const category = await createCategory({
-      name: data.name,
+    // Prepare category data - only include contentTypeId if it exists
+    const categoryData: Omit<Category, "_id"> = {
       label: data.label,
-      contentTypeId: data.contentTypeId,
       isDefault: data.isDefault || false,
       createdAt: new Date(),
-    })
+    }
 
+    // Only add contentTypeId if it's provided (for non-default categories)
+    if (data.contentTypeId) {
+      categoryData.contentTypeId = data.contentTypeId
+    }
+
+    const category = await createCategory(categoryData)
     return NextResponse.json(category, { status: 201 })
   } catch (error) {
     console.error("Error creating category:", error)

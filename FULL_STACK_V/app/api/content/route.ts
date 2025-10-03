@@ -1,6 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server"
 import { getServerSession } from "next-auth"
-import { createContent, getAllContent, getUserByEmail, getContentTypeById, getCategories, sendNewsletterForNewContent, getAllUsers, createNotification } from "@/backend/lib/db"
+import { createContent, getAllContent, getUserByEmail, getContentTypeById, getCategories, sendNewsletterForNewContent, getAllUsers, createNotification, getContent as getContentFromDb } from "@/backend/lib/db"
 import { fal } from "@fal-ai/client"
 import type { Content } from "@/backend/models/types"
 
@@ -23,49 +23,64 @@ async function fileFromDataUrl(dataUrl: string, filename: string): Promise<File>
 
 export async function GET(request: NextRequest) {
   try {
-    console.log("🔍 GET /api/content - Starting content fetch")
-
     const { searchParams } = new URL(request.url)
-    const sortBy = searchParams.get("sortBy") || "newest"
-    const contentType = searchParams.get("contentType")
-    const contentTypes = searchParams.get("contentTypes")
-    const category = searchParams.get("category")
-    const search = searchParams.get("search")
-    const timeFilter = searchParams.get("timeFilter")
-    const page = Number.parseInt(searchParams.get("page") || "1")
-    const limit = Number.parseInt(searchParams.get("limit") || "10")
 
-    // Check if user is authenticated
-    const session = await getServerSession();
-    // Get user from database
-    const user = session?.user?.email ? await getUserByEmail(session.user.email) : null;
-    const userId = user?._id!.toString();
+    const limit = parseInt(searchParams.get("limit") || "20", 10)
+    const skip = parseInt(searchParams.get("skip") || "0", 10)
+    const publishedParam = searchParams.get("published")
+    const published = publishedParam === null ? undefined : publishedParam === "true"
+    const sortBy = (searchParams.get("sortBy") as any) || undefined
+    const q = searchParams.get("q") || undefined
 
-    const contentTypeArray = searchParams.getAll("contentType").length > 0
-      ? searchParams.getAll("contentType")
-      : undefined;
-
-    const options = {
-      published: searchParams.get("published") !== "false",
-      contentType: contentTypeArray,
-      category: searchParams.get("category") || undefined,
-      tag: searchParams.get("tag") || undefined,
-      featured: searchParams.has("featured") ? searchParams.get("featured") === "true" : undefined,
-      sortBy: (searchParams.get("sortBy") as "newest" | "popular" | "trending") || "newest",
-      limit: Number.parseInt(searchParams.get("limit") || "10"),
-      skip: Number.parseInt(searchParams.get("skip") || "0"),
-      createdAt: searchParams.get("createdAt") ? JSON.parse(searchParams.get("createdAt") as string) : undefined,
-      search: searchParams.get("q") || undefined,
-      userId,
+    // contentType can appear multiple times; our client sends one or many
+    // contentType may arrive as repeated params or a single comma-separated param
+    let contentType: string[] | undefined = undefined
+    const repeated = searchParams.getAll("contentType")
+    if (repeated && repeated.length > 0) {
+      contentType = repeated
+    } else {
+      const csv = searchParams.get("contentType")
+      if (csv) contentType = csv.split(",").filter(Boolean)
     }
 
-    // Fetch content and total count
-    const { content, totalCount } = await getAllContent(options);
+    // categories may be repeated or comma-separated
+    let category: string[] | undefined = undefined
+    const catRepeated = searchParams.getAll("category")
+    if (catRepeated && catRepeated.length > 0) {
+      if (catRepeated.length === 1 && catRepeated[0]?.includes(",")) {
+        category = catRepeated[0].split(",").filter(Boolean)
+      } else {
+        category = catRepeated
+      }
+    } else {
+      const catCsv = searchParams.get("category")
+      if (catCsv) category = catCsv.split(",").filter(Boolean)
+    }
 
-    // Return both content and totalCount
-    return NextResponse.json({ content, totalCount });
+    let createdAt: any = undefined
+    const createdAtParam = searchParams.get("createdAt")
+    if (createdAtParam) {
+      try {
+        createdAt = JSON.parse(createdAtParam)
+      } catch {
+        createdAt = undefined
+      }
+    }
+
+    const result = await getContentFromDb({
+      contentType,
+      category,
+      sortBy,
+      published,
+      limit,
+      skip,
+      createdAt,
+      search: q,
+    })
+
+    return NextResponse.json(result)
   } catch (error) {
-    console.error("❌ Error fetching content:", error)
+    console.error("Error fetching filtered content:", error)
     return NextResponse.json({ error: "Failed to fetch content" }, { status: 500 })
   }
 }
@@ -319,6 +334,7 @@ export async function POST(request: NextRequest) {
           userId: user._id,
           type: 'new_post',
           contentId: result._id,
+          slug: result.slug,
           title: result.title,
           message: `تم نشر مقال جديد: ${result.title}`,
           isRead: false,

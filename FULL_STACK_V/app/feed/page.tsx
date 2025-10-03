@@ -55,7 +55,6 @@ export default function FeedPage() {
 	const search = useMemo(() => searchParams.get("q"), [searchParams])
 	const skipParam = useMemo(() => parseInt(searchParams.get("skip") || "0"), [searchParams]) // Get skip from URL
 
-  
 	useEffect(() => {
     setSkip(skipParam) // Initialize skip from URL
   }, [])

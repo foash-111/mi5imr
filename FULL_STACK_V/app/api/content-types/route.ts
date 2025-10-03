@@ -32,12 +32,11 @@ export async function POST(request: NextRequest) {
     const data = await request.json()
 
     // Validate required fields
-    if (!data.name || !data.label || !data.icon) {
-      return NextResponse.json({ error: "Missing required fields" }, { status: 400 })
+    if (!data.label || !data.icon) {
+      return NextResponse.json({ error: "Missing required fields: label and icon" }, { status: 400 })
     }
 
     const contentType = await createContentType({
-      name: data.name,
       label: data.label,
       icon: data.icon,
       createdAt: new Date(),

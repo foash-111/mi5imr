@@ -75,7 +75,7 @@ interface FeedSidebarProps {
   contentTypes: { id: string; label: string; count: number; _id?: string; icon?: string }[]
   attributes: { id: string; label: string; count: number }[]
   selectedTypes?: string[]
-  allCategories?: { id: string; label: string; count: number; contentTypeId?: string; isDefault: boolean }[]
+  allCategories?: { id: string; label: string; count: number; contentTypeId?: string; isDefault?: boolean }[]
 }
 
 const getIconForType = (label: string, iconName?: string) => {
@@ -137,15 +137,83 @@ export function FeedSidebar({ contentTypes, attributes, selectedTypes: initialSe
   const [contentTypeSearch, setContentTypeSearch] = useState("")
   const [attributeSearch, setAttributeSearch] = useState("")
 
+  // Local data (fallback to fetching when props are empty)
+  const [localContentTypes, setLocalContentTypes] = useState<typeof contentTypes>(contentTypes || [])
+  const [localAllCategories, setLocalAllCategories] = useState<FeedSidebarProps["allCategories"]>(allCategories || [])
+  const [defaultCategoriesState, setDefaultCategoriesState] = useState<FeedSidebarProps["allCategories"]>([])
+
+  // Fetch content types if not provided
+  useEffect(() => {
+    if (!contentTypes || contentTypes.length === 0) {
+      ;(async () => {
+        try {
+          const res = await fetch("/api/content-types")
+          if (res.ok) {
+            const data = await res.json()
+            const mapped = (data || []).map((t: any) => ({ id: t._id || t.id, label: t.label, count: t.count || 0, _id: t._id, icon: t.icon }))
+            setLocalContentTypes(mapped)
+          }
+        } catch (e) {
+          console.error("Failed to fetch content types:", e)
+        }
+      })()
+    } else {
+      setLocalContentTypes(contentTypes)
+    }
+  }, [contentTypes])
+
+  // Fetch ALL categories once (with counts) and keep in memory for filtering
+  useEffect(() => {
+    if (!allCategories || allCategories.length === 0) {
+      ;(async () => {
+        try {
+          const res = await fetch("/api/categories?withCounts=true")
+          if (res.ok) {
+            const data = await res.json()
+            const mapped = (data || []).map((c: any) => ({
+              id: c._id || c.id,
+              label: c.label,
+              count: c.count || 0,
+              isDefault: !!c.isDefault,
+              contentTypeId: c.contentTypeId || undefined,
+            }))
+            setLocalAllCategories(mapped)
+            setDefaultCategoriesState(mapped.filter((c: { isDefault?: boolean }) => !!c.isDefault))
+          }
+        } catch (e) {
+          console.error("Failed to fetch categories:", e)
+        }
+      })()
+    } else {
+      setLocalAllCategories(allCategories)
+      setDefaultCategoriesState(allCategories.filter((c) => !!c.isDefault))
+    }
+  }, [allCategories])
+
+  // We no longer fetch per selection; we filter the preloaded list in dynamicAttributes
+
   // Dynamic category filtering based on selected content types
   const dynamicAttributes = useMemo(() => {
-    if (!allCategories || allCategories.length === 0) {
+    // Coerce to a unified shape so we can safely read isDefault/contentTypeId
+    const normalized = (localAllCategories && localAllCategories.length > 0
+      ? localAllCategories
+      : attributes
+    ).map((c: any) => ({
+      id: c.id,
+      label: c.label,
+      count: c.count,
+      isDefault: !!c.isDefault,
+      contentTypeId: c.contentTypeId as string | undefined,
+    }))
+
+    const baseCategories = normalized
+    if (!baseCategories || baseCategories.length === 0) {
       return attributes
     }
 
     // Scenario 1: When no content types are selected - show only default categories
     if (selectedTypes.length === 0) {
-      const defaultCategories = allCategories
+      const defaultCategories = baseCategories
         .filter(cat => cat.isDefault)
         .map(cat => ({
           id: cat.id,
@@ -157,38 +225,53 @@ export function FeedSidebar({ contentTypes, attributes, selectedTypes: initialSe
 
     // Scenario 2: When one or more content types are selected
     // Get content type IDs for selected types
-    const selectedTypeIds = contentTypes
-      .filter(type => selectedTypes.includes(type.id))
-      .map(type => (type as any)._id) // Use the database _id
+    const selectedTypeIds = (localContentTypes || contentTypes)
+      .filter(type => {
+        const candidateId = (type as any)._id || type.id
+        return selectedTypes.includes(candidateId)
+      })
+      .map(type => ((type as any)._id || type.id)) // Always use the stable internal id
 
     // Show only categories associated with the selected content types (hide defaults)
-    const contentTypeCategories = allCategories.filter(cat => 
+    const contentTypeCategories = baseCategories.filter(cat => 
       !cat.isDefault && selectedTypeIds.includes(cat.contentTypeId)
     )
 
-    // Remove duplicates by label (show only unique category names)
-    const uniqueCategories = contentTypeCategories.reduce((acc, cat) => {
-      const existing = acc.find(existingCat => existingCat.label === cat.label)
-      if (!existing) {
-        acc.push(cat)
-      }
-      return acc
-    }, [] as typeof contentTypeCategories)
+    // Remove duplicates by strong Arabic-safe normalization
+    const normalize = (s: string) => {
+      return s
+        // remove Arabic tatweel
+        .replace(/\u0640/g, "")
+        // remove Arabic diacritics (tashkeel)
+        .replace(/[\u0610-\u061A\u064B-\u065F\u0670\u06D6-\u06ED]/g, "")
+        // unify whitespace
+        .replace(/\s+/g, " ")
+        .trim()
+        .toLocaleLowerCase()
+        .normalize("NFKC")
+    }
+    const seen = new Set<string>()
+    const uniqueCategories = contentTypeCategories.filter((cat) => {
+      const key = normalize(cat.label)
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
 
     return uniqueCategories.map(cat => ({
       id: cat.id,
       label: cat.label,
       count: cat.count
     }))
-  }, [allCategories, selectedTypes, contentTypes, attributes])
+  }, [localAllCategories, attributes, selectedTypes, localContentTypes, contentTypes])
 
  const filteredContentTypes = useMemo(
-    () => contentTypes.filter(type => type.label.toLowerCase().includes(contentTypeSearch.toLowerCase())),
-    [contentTypes, contentTypeSearch]
+    () => (localContentTypes || contentTypes).filter(type => type.label.toLowerCase().includes(contentTypeSearch.toLowerCase())),
+    [localContentTypes, contentTypes, contentTypeSearch]
   )
 
-  const filteredAttributes = useMemo(
-    () => dynamicAttributes.filter(attr => attr.label.toLowerCase().includes(attributeSearch.toLowerCase())),
+ const filteredAttributes = useMemo(
+    () => dynamicAttributes.filter((attr: { label: string }) => attr.label.toLowerCase().includes(attributeSearch.toLowerCase())),
     [dynamicAttributes, attributeSearch]
   )
 
@@ -200,43 +283,62 @@ export function FeedSidebar({ contentTypes, attributes, selectedTypes: initialSe
     const q = searchParams.get("q") || ""
     const sort = searchParams.get("sort") || "newest"
 
-    // For content types, we need to match by label since URL uses content type names
-    setSelectedTypes(type.filter((t) => contentTypes.some((ct) => ct.label === t)))
+    // For content types, map URL labels -> internal ids
+    const typesByLabel = (localContentTypes || contentTypes)
+    const mappedTypeIds = type
+      .map((t) => {
+        const match = typesByLabel.find((ct) => ct.label === t)
+        if (!match) return undefined
+        return (match as any)._id || match.id
+      })
+      .filter((v): v is string => Boolean(v))
+    setSelectedTypes(mappedTypeIds)
     
     // For attributes, we need to match by the new id structure (database _id)
     setSelectedAttributes(attr.filter((attrId) => attributes.some((a) => a.id === attrId)))
     setSelectedTimeFilter(timeFilters.some((t) => t.id === time) ? time : null)
     setSearchQuery(q)
     setSelectedSort(sortOptions.some((s) => s.id === sort) ? sort : "newest")
-  }, [searchParams, contentTypes, attributes])
+  }, [searchParams, localContentTypes, attributes, contentTypes])
 
   // Update URL on filter changes
   useEffect(() => {
-    const params = new URLSearchParams()
+    const params = new URLSearchParams(searchParams.toString())
     if (selectedTypes.length > 0) {
       // Use content type labels for URL parameters
       const typeLabels = selectedTypes.map(typeId => {
-        const contentType = contentTypes.find(ct => ct.id === typeId)
+        const contentType = (localContentTypes || contentTypes)
+          .find(ct => (ct as any)._id === typeId || ct.id === typeId)
         return contentType ? contentType.label : typeId
       })
       params.set("type", typeLabels.join(","))
+    } else {
+      params.delete("type")
     }
     if (selectedAttributes.length > 0) {
       // Use the new id structure (database _id) for attributes
       params.set("attributes", selectedAttributes.join(","))
+    } else {
+      params.delete("attributes")
     }
     if (selectedTimeFilter) {
       params.set("time", selectedTimeFilter)
+    } else {
+      params.delete("time")
     }
     if (searchQuery) {
       params.set("q", searchQuery)
+    } else {
+      params.delete("q")
     }
     if (selectedSort !== "newest") {
       params.set("sort", selectedSort)
+    } else {
+      params.delete("sort")
     }
     const queryString = params.toString()
-    router.push(queryString ? `/feed?${queryString}` : "/feed")
-  }, [selectedTypes, selectedAttributes, selectedTimeFilter, searchQuery, selectedSort, router, contentTypes])
+    router.replace(queryString ? `/feed?${queryString}` : "/feed")
+  }, [selectedTypes, selectedAttributes, selectedTimeFilter, searchQuery, selectedSort, router, contentTypes, searchParams])
 
   const handleTypeChange = (id: string) => {
     setSelectedTypes((prev) =>
@@ -462,23 +564,24 @@ export function FeedSidebar({ contentTypes, attributes, selectedTypes: initialSe
             )}
           </div>
           <div className="space-y-2">
-						{filteredContentTypes.map((type) => {
-              const Icon = getIconForType(type.label, type.icon) // Get the icon component
+        {filteredContentTypes.map((type) => {
+              const Icon = getIconForType(type.label, type.icon)
+              const derivedId = (type as any)._id || type.id
               return (
-                <div key={type.id} className="flex items-center justify-between space-x-2 space-x-reverse">
+                <div key={derivedId} className="flex items-center justify-between space-x-2 space-x-reverse">
                   <div className="flex items-center space-x-2 space-x-reverse">
                     <Checkbox
-                      id={`type-${type.id}`}
-                      checked={selectedTypes.includes(type.id)}
-                      onCheckedChange={() => handleTypeChange(type.id)}
+                      id={`type-${derivedId}`}
+                      checked={selectedTypes.includes(derivedId)}
+                      onCheckedChange={() => handleTypeChange(derivedId)}
                       className="border-vintage-border data-[state=checked]:bg-vintage-accent data-[state=checked]:border-vintage-accent"
                       aria-label={`تحديد ${type.label}`}
                     />
                     <label
-                      htmlFor={`type-${type.id}`}
+                      htmlFor={`type-${derivedId}`}
                       className="flex items-center gap-2 text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70 cursor-pointer"
                     >
-                      <Icon className="h-4 w-4" /> {/* Use the Icon component */}
+                      <Icon className="h-4 w-4" />
                       {type.label}
                     </label>
                   </div>

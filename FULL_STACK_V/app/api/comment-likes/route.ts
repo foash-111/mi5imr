@@ -1,5 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
-import { likeComment, unlikeComment, isCommentLikedByUser, getUserByEmail, getUserLikes, createNotification } from "@/backend/lib/db"
+import { likeComment, unlikeComment, isCommentLikedByUser, getUserByEmail, getUserLikes, createNotification, getContentById } from "@/backend/lib/db"
 import { getServerSession } from "next-auth"
 import { getDb } from "@/backend/lib/db"
 import { ObjectId } from "mongodb"
@@ -49,10 +49,15 @@ export async function POST(request: NextRequest) {
 				const db = await getDb()
 				const comment = await db.collection("comments").findOne({ _id: new ObjectId(commentId) })
 				if (comment && comment.userId && comment.userId.toString() !== userId) {
+					// Get content to get the slug
+					const content = await getContentById(comment.contentId.toString())
+					
 					await createNotification({
 						userId: comment.userId,
 						type: 'comment_liked',
 						commentId: commentId,
+						contentId: comment.contentId,
+						slug: content?.slug,
 						title: 'تم الإعجاب بتعليقك',
 						message: `قام ${user.name} بالإعجاب بتعليقك`,
 						isRead: false,
@@ -68,7 +73,13 @@ export async function POST(request: NextRequest) {
 			return NextResponse.json({ error: "Failed to update like status" }, { status: 500 })
 		}
 
-		return NextResponse.json({ liked: !isLiked })
+			// Fetch the updated like count
+		const db = await getDb()
+		const comment = await db.collection("comments").findOne({ _id: new ObjectId(commentId) })
+		const likes = comment?.likes ?? 0
+
+		// return NextResponse.json({ liked: !isLiked })
+		return NextResponse.json({ liked: !isLiked, likes })
 	} catch (error) {
 		console.error("Error updating like status:", error)
 		return NextResponse.json({ error: "Failed to update like status" }, { status: 500 })

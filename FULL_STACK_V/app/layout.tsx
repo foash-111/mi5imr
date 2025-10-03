@@ -17,7 +17,7 @@ const cairo = Cairo({
 export const metadata: Metadata = {
   title: "مخيمر - منصة الحكايات",
   description: "منصة للقصص والمقالات والشعر والتأملات",
-    generator: 'v0.dev'
+    generator: ''
 }
 
 export default function RootLayout({

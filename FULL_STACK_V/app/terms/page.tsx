@@ -3,11 +3,12 @@ import { Navbar } from "@/components/navbar"
 import { Footer } from "@/components/footer"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Loading } from "@/components/ui/loading"
 
 export default function TermsPage() {
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
-      <Suspense fallback={<div>Loading...</div>}>
+      <Suspense fallback={<Loading variant="page" text="جاري التحميل..." />}>
         <Navbar />
       </Suspense>
       <main className="flex-1 container py-8">

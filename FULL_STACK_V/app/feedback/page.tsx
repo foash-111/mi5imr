@@ -1,6 +1,7 @@
 "use client"
 
 import type React from "react"
+import { Suspense } from "react"
 
 import { useState } from "react"
 import { Navbar } from "@/components/navbar"
@@ -11,24 +12,65 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Loading } from "@/components/ui/loading"
 import { MessageSquare } from "lucide-react"
+import { useToast } from "@/hooks/use-toast"
 
 export default function FeedbackPage() {
+  const { toast } = useToast()
   const [name, setName] = useState("")
+  const [email, setEmail] = useState("")
   const [role, setRole] = useState("")
   const [message, setMessage] = useState("")
   const [isSubmitted, setIsSubmitted] = useState(false)
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    // Here you would typically send the feedback to your API
-    console.log({ name, role, message })
-    setIsSubmitted(true)
+    setIsSubmitting(true)
+    
+    try {
+      const response = await fetch("/api/feedback", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ name, email, role, message }),
+      })
+
+      const data = await response.json()
+
+      if (!response.ok) {
+        throw new Error(data.error || "فشل في إرسال الرأي")
+      }
+
+      toast({
+        title: "تم إرسال رأيك بنجاح",
+        description: "نقدر مشاركتك ونعدك بالاطلاع على اقتراحاتك.",
+      })
+      
+      setIsSubmitted(true)
+      setName("")
+      setEmail("")
+      setRole("")
+      setMessage("")
+    } catch (error) {
+      console.error("Failed to submit feedback:", error)
+      toast({
+        title: "خطأ في الإرسال",
+        description: error instanceof Error ? error.message : "فشل في إرسال الرأي",
+        variant: "destructive",
+      })
+    } finally {
+      setIsSubmitting(false)
+    }
   }
 
   return (
     <div className="flex flex-col min-h-screen bg-vintage-paper text-vintage-ink">
-      <Navbar />
+      <Suspense fallback={<Loading variant="page" text="جاري التحميل..." />}>
+        <Navbar />
+      </Suspense>
       <main className="flex-1 container py-12">
         <div className="max-w-2xl mx-auto">
           <Card className="border-vintage-border  backdrop-blur-sm overflow-hidden">
@@ -60,23 +102,35 @@ export default function FeedbackPage() {
                       placeholder="أدخل اسمك"
                       className="border-vintage-border"
                       required
+                      disabled={isSubmitting}
                     />
                   </div>
 
                   <div className="grid gap-3">
-                    <Label htmlFor="role">الدور</Label>
-                    <Select required onValueChange={setRole}>
-                      <SelectTrigger className="border-vintage-border">
-                        <SelectValue placeholder="اختر دورك" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="قارئ">قارئ</SelectItem>
-                        <SelectItem value="كاتب">كاتب</SelectItem>
-                        <SelectItem value="طالب">طالب</SelectItem>
-                        <SelectItem value="مدرس">مدرس</SelectItem>
-                        <SelectItem value="أخرى">أخرى</SelectItem>
-                      </SelectContent>
-                    </Select>
+                    <Label htmlFor="email">البريد الإلكتروني</Label>
+                    <Input
+                      id="email"
+                      type="email"
+                      value={email}
+                      onChange={(e) => setEmail(e.target.value)}
+                      placeholder="أدخل بريدك الإلكتروني"
+                      className="border-vintage-border"
+                      required
+                      disabled={isSubmitting}
+                    />
+                  </div>
+
+                  <div className="grid gap-3">
+                    <Label htmlFor="role" >المهنة</Label>
+                    <Input
+                      id="role"
+                      value={role}
+                      onChange={(e) => setRole(e.target.value)}
+                      placeholder=" ما هي مهنتك"
+                      className="border-vintage-border"
+                      required
+                      disabled={isSubmitting}
+                    />
                   </div>
 
                   <div className="grid gap-3">
@@ -88,11 +142,20 @@ export default function FeedbackPage() {
                       placeholder="اكتب رأيك أو اقتراحك هنا..."
                       className="min-h-[150px] border-vintage-border"
                       required
+                      disabled={isSubmitting}
                     />
                   </div>
 
-                  <Button type="submit" className="bg-vintage-accent hover:bg-vintage-accent/90 text-white">
-                    إرسال
+                  <Button 
+                    type="submit" 
+                    className="bg-vintage-accent hover:bg-vintage-accent/90 text-white"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <Loading variant="inline" size="sm" text="جاري الإرسال..." />
+                    ) : (
+                      "إرسال"
+                    )}
                   </Button>
                 </form>
               )}

@@ -163,13 +163,14 @@ export function PostForm({ mode, initialData }: PostFormProps) {
       category.contentTypeId === selectedContentType._id && !category.isDefault
     )
     
-    // Filter out duplicates within the same content type based on name
+    // Filter out duplicates within the same content type based on label
     const uniqueCategories: Category[] = []
-    const seenNames = new Set<string>()
+    const seenLabels = new Set<string>()
     
     contentSpecificCategories.forEach(category => {
-      if (!seenNames.has(category.name)) {
-        seenNames.add(category.name)
+      const key = category.label
+      if (!seenLabels.has(key)) {
+        seenLabels.add(key)
         uniqueCategories.push(category)
       }
     })
@@ -541,7 +542,7 @@ export function PostForm({ mode, initialData }: PostFormProps) {
                   </>
                 )}
               </Button>
-              {mode === "create" && (
+              {(mode === "create" || (mode === "edit" && !published)) && (
                 <Button type="submit" variant="outline" className="border-vintage-border" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <>

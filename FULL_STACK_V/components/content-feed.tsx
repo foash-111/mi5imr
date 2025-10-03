@@ -23,7 +23,7 @@ import Image from "next/image"
 import Link from "next/link"
 import { useToast } from "@/hooks/use-toast"
 import { useSession } from "next-auth/react"
-import { toggleLike, toggleBookmark } from "@/lib/api-client"
+import { toggleLike, toggleBookmark, incrementContentViews } from "@/lib/api-client"
 
 
 interface ContentFeedProps {
@@ -58,6 +58,15 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
   }, [content]);
 	
 	// console.log("Content from feedpage:", content)
+
+  const handleView = async (id: string) => {
+    try {
+      await incrementContentViews(id)
+      console.log("✅ View tracked for content:", id)
+    } catch (error) {
+      console.error("❌ Error tracking view:", error)
+    }
+  }
 
   const handleLike = async (id: string) => {
     if (!session) {
@@ -301,7 +310,7 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
                     </div>
                   </div>
 
-                  <Link href={`/content/${item.slug}`}>
+                  <Link href={`/content/${item.slug}`} onClick={() => handleView(item._id)}>
                     <h2 className="text-lg font-bold mb-2 hover:text-vintage-accent transition-colors line-clamp-2">
                       {item.title}
                     </h2>
@@ -393,7 +402,7 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
               </div>
 
               <div className="p-4">
-                <Link href={`/content/${item.slug}`}>
+                <Link href={`/content/${item.slug}`} onClick={() => handleView(item._id)}>
                   <h2 className="text-xl font-bold mb-3 hover:text-vintage-accent transition-colors">{item.title}</h2>
                 </Link>
 
@@ -404,6 +413,7 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
                         src={item.coverImage || "/placeholder.svg"}
                         alt={item.title}
                         fill
+                        sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
                         className="object-cover"
                       />
                     </div>
@@ -412,7 +422,7 @@ export function ContentFeed({ viewMode, content, isLoading, error }: ContentFeed
                   <div className={item.coverImage ? "md:w-2/3" : "w-full"}>
                     <div className="mb-4 whitespace-pre-line">
                       {item.excerpt}
-                      <Link href={`/content/${item.slug}`} className="block mt-2 text-vintage-accent hover:underline">
+                      <Link href={`/content/${item.slug}`} className="block mt-2 text-vintage-accent hover:underline" onClick={() => handleView(item._id)}>
                         اقرأ المزيد
                       </Link>
                     </div>

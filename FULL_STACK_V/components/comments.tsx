@@ -197,17 +197,33 @@ export function Comments({ slug, contentId }: { slug: string; contentId: string 
       return
     }
 		try {
-			const { liked } = await toggleCommentLike(commentId)
+			const { liked, likes } = await toggleCommentLike(commentId)
 			setLikedComments((prev) =>
         liked ? [...prev, commentId] : prev.filter((id) => id !== commentId)
       )			
+			// setComments((prevComments) =>
+      //   prevComments.map((comment) =>
+      //     comment._id === commentId
+      //       ? { ...comment, likes}
+      //       : comment
+      //   )
+      // )
 			setComments((prevComments) =>
-        prevComments.map((comment) =>
-          comment._id === commentId
-            ? { ...comment, likes: liked ? comment.likes : comment.likes }
-            : comment
-        )
-      )
+				prevComments.map((comment) => {
+					if (comment._id === commentId) {
+						return { ...comment, likes }
+					}
+					if (comment.replies) {
+						return {
+							...comment,
+							replies: comment.replies.map((reply: any) =>
+								reply._id === commentId ? { ...reply, likes } : reply
+							),
+						}
+					}
+					return comment
+				})
+			)
 
       toast({
         title: liked ? "تم الإعجاب" : "تم إلغاء الإعجاب",
@@ -492,7 +508,7 @@ export function Comments({ slug, contentId }: { slug: string; contentId: string 
                           onClick={() => toggleLike(comment._id)}
                         >
                           <Heart className="h-4 w-4 mr-1" fill={isLiked ? "currentColor" : "none"} />
-                          <span>{isLiked ? comment.likes + 1 : comment.likes}</span>
+                          <span>{comment.likes}</span>
                         </Button>
                         <Button
                           variant="ghost"
@@ -624,7 +640,7 @@ export function Comments({ slug, contentId }: { slug: string; contentId: string 
                                     className="h-3 w-3 mr-1"
                                     fill={likedComments.includes(reply._id) ? "currentColor" : "none"}
                                   />
-                                  <span>{likedComments.includes(reply._id) ? reply.likes + 1 : reply.likes}</span>
+                                  <span>{likedComments.includes(reply._id) ? reply.likes : reply.likes}</span>
                                 </Button>
                               </div>
                             </div>

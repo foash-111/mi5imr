@@ -32,14 +32,12 @@ import {
 
 interface ContentType {
   _id: string
-  name: string
   label: string
   icon: string
 }
 
 interface Category {
   _id: string
-  name: string
   label: string
   contentTypeId?: string
   isDefault: boolean
@@ -77,7 +75,6 @@ export function ContentTypeManagement({
   const [isLoading, setIsLoading] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
   const [currentContentType, setCurrentContentType] = useState<ContentType | null>(null)
-  const [newTypeName, setNewTypeName] = useState("")
   const [newTypeLabel, setNewTypeLabel] = useState("")
   const [newTypeIcon, setNewTypeIcon] = useState("FileText")
   const [expandedContentTypes, setExpandedContentTypes] = useState<Set<string>>(new Set())
@@ -99,13 +96,13 @@ export function ContentTypeManagement({
       category.contentTypeId === contentTypeId && !category.isDefault
     )
     
-    // Filter out duplicates within the same content type based on name
+    // Filter out duplicates within the same content type based on label
     const uniqueContentCategories: Category[] = []
-    const seenNames = new Set<string>()
+    const seenLabels = new Set<string>()
     
     contentSpecificCategories.forEach(category => {
-      if (!seenNames.has(category.name)) {
-        seenNames.add(category.name)
+      if (!seenLabels.has(category.label)) {
+        seenLabels.add(category.label)
         uniqueContentCategories.push(category)
       }
     })
@@ -159,10 +156,10 @@ export function ContentTypeManagement({
   }
 
   const handleAddContentType = async () => {
-    if (!newTypeName.trim() || !newTypeLabel.trim()) {
+    if (!newTypeLabel.trim()) {
       toast({
         title: "بيانات ناقصة",
-        description: "يرجى إدخال اسم ووصف نوع المحتوى",
+        description: "يرجى إدخال اسم نوع المحتوى",
         variant: "destructive",
       })
       return
@@ -172,10 +169,6 @@ export function ContentTypeManagement({
       setIsLoading(true)
 
       const newContentType = {
-        name: newTypeName
-          .toLowerCase()
-          .replace(/\s+/g, "-")
-          .replace(/[^\w-]+/g, ""),
         label: newTypeLabel,
         icon: newTypeIcon,
       }
@@ -191,7 +184,6 @@ export function ContentTypeManagement({
       if (response.ok) {
         const createdContentType = await response.json()
         onContentTypesChange([...contentTypes, createdContentType])
-        setNewTypeName("")
         setNewTypeLabel("")
         setNewTypeIcon("FileText")
 
@@ -248,7 +240,6 @@ export function ContentTypeManagement({
 
         onContentTypesChange(updatedTypes)
         setCurrentContentType(null)
-        setNewTypeName("")
         setNewTypeLabel("")
         setNewTypeIcon("FileText")
         setIsEditing(false)
@@ -317,7 +308,6 @@ export function ContentTypeManagement({
 
   const startEditingContentType = (contentType: ContentType) => {
     setCurrentContentType(contentType)
-    setNewTypeName(contentType.name)
     setNewTypeLabel(contentType.label)
     setNewTypeIcon(contentType.icon)
     setIsEditing(true)
@@ -326,24 +316,24 @@ export function ContentTypeManagement({
   return (
     <Dialog>
       <DialogTrigger asChild>
-        <Button variant="outline" size="sm" className="border-vintage-border">
+        <Button variant="outline" size="sm" className="border-vintage-border" dir="rtl">
           <Settings className="h-4 w-4 ml-1" />
           إدارة أنواع المحتوى
         </Button>
       </DialogTrigger>
-      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>إدارة أنواع المحتوى</DialogTitle>
-          <DialogDescription>أضف، عدل، أو احذف أنواع المحتوى المتاحة على المنصة</DialogDescription>
+      <DialogContent className="sm:max-w-2xl max-h-[80vh] overflow-y-auto" dir="rtl">
+        <DialogHeader className="text-right">
+          <DialogTitle className="text-right">إدارة أنواع المحتوى</DialogTitle>
+          <DialogDescription className="text-right">أضف، عدل، أو احذف أنواع المحتوى المتاحة على المنصة</DialogDescription>
         </DialogHeader>
 
-        <div className="py-4">
+        <div className="py-4 text-right">
           <div className="mb-6 space-y-3">
             <h4 className="font-medium text-sm">أنواع المحتوى الحالية</h4>
             {contentTypes.map((type) => (
               <div key={type._id} className="border rounded-md border-vintage-border">
                 <div className="flex items-center justify-between p-3">
-                  <div className="flex items-center gap-3">
+                  <div className="flex items-center gap-3 flex-row-reverse">
                     <Button
                       variant="ghost"
                       size="sm"
@@ -359,10 +349,9 @@ export function ContentTypeManagement({
                     {getIconComponent(type.icon)}
                     <div>
                       <span className="font-medium">{type.label}</span>
-                      <p className="text-sm text-muted-foreground">{type.name}</p>
                     </div>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 flex-row-reverse">
                     <Button variant="ghost" size="sm" onClick={() => startEditingContentType(type)} disabled={isLoading}>
                       <Pencil className="h-4 w-4" />
                       <span className="sr-only">تعديل</span>
@@ -383,7 +372,7 @@ export function ContentTypeManagement({
                 {/* Categories section */}
                 {expandedContentTypes.has(type._id) && (
                   <div className="border-t border-vintage-border bg-gray-50 p-3">
-                    <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center justify-between mb-2 flex-row-reverse">
                       <h5 className="text-sm font-medium">تصنيفات {type.label}</h5>
                       {allCategories.length > 0 ? (
                         <span className="text-xs text-muted-foreground">
@@ -404,10 +393,10 @@ export function ContentTypeManagement({
                             <div className="space-y-1">
                               {filtered.contentCategories.map((category) => (
                                 <div key={category._id} className="flex items-center justify-between text-sm p-2 bg-white rounded border">
-                                  <div className="flex items-center gap-2">
+                                  <div className="flex items-center gap-2 flex-row-reverse">
                                     <span>{category.label}</span>
                                   </div>
-                                  <span className="text-xs text-muted-foreground">({category.name})</span>
+                                
                                 </div>
                               ))}
                             </div>
@@ -427,7 +416,7 @@ export function ContentTypeManagement({
                               {contentTypeCategories[type._id].map((category) => (
                                 <div key={category._id} className="flex items-center justify-between text-sm p-2 bg-white rounded border">
                                   <span>{category.label}</span>
-                                  <span className="text-xs text-muted-foreground">({category.name})</span>
+                                
                                 </div>
                               ))}
                             </div>
@@ -454,30 +443,13 @@ export function ContentTypeManagement({
           <div className="border rounded-md border-vintage-border p-4 bg-vintage-paper/30">
             <h4 className="font-medium text-sm mb-4">{isEditing ? "تعديل نوع محتوى" : "إضافة نوع محتوى جديد"}</h4>
             <div className="space-y-4">
-              {!isEditing && (
-                <div className="grid gap-2">
-                  <Label htmlFor="type-name">المعرف (ID)</Label>
-                  <Input
-                    id="type-name"
-                    value={newTypeName}
-                    onChange={(e) => setNewTypeName(e.target.value)}
-                    placeholder="مثال: articles, stories"
-                    className="border-vintage-border"
-                    disabled={isLoading}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    سيتم تحويله تلقائياً إلى معرف صالح (أحرف إنجليزية وشرطات فقط)
-                  </p>
-                </div>
-              )}
-
               <div className="grid gap-2">
                 <Label htmlFor="type-label">الاسم المعروض</Label>
                 <Input
                   id="type-label"
                   value={newTypeLabel}
                   onChange={(e) => setNewTypeLabel(e.target.value)}
-                  placeholder="مثال: مقالات، حواديت"
+                  placeholder="مثال: مقالات، حواديت، شعر"
                   className="border-vintage-border"
                   disabled={isLoading}
                 />
@@ -486,15 +458,15 @@ export function ContentTypeManagement({
               <div className="grid gap-2">
                 <Label htmlFor="type-icon">الأيقونة</Label>
                 <Select value={newTypeIcon} onValueChange={setNewTypeIcon} disabled={isLoading}>
-                  <SelectTrigger className="border-vintage-border">
+                  <SelectTrigger className="border-vintage-border text-right">
                     <SelectValue />
                   </SelectTrigger>
-                  <SelectContent>
+                  <SelectContent className="text-right">
                     {AVAILABLE_ICONS.map((icon) => {
                       const IconComponent = icon.icon
                       return (
-                        <SelectItem key={icon.value} value={icon.value}>
-                          <div className="flex items-center gap-2">
+                        <SelectItem key={icon.value} value={icon.value} className="text-right">
+                          <div className="flex items-center gap-2 flex-row-reverse">
                             <IconComponent className="h-4 w-4" />
                             <span>{icon.label}</span>
                           </div>
@@ -505,14 +477,13 @@ export function ContentTypeManagement({
                 </Select>
               </div>
 
-              <div className="flex justify-end gap-2 pt-2">
+              <div className="flex justify-end gap-2 pt-2 flex-row-reverse">
                 {isEditing && (
                   <Button
                     variant="outline"
                     onClick={() => {
                       setIsEditing(false)
                       setCurrentContentType(null)
-                      setNewTypeName("")
                       setNewTypeLabel("")
                       setNewTypeIcon("FileText")
                     }}
