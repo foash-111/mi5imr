@@ -48,7 +48,7 @@
 
 ```
 arabic-storytelling_Full_stack_version/
-├── stable_version/
+|
 │   ├── app/                    # Next.js App Router pages
 │   │   ├── admin/             # Admin dashboard
 │   │   ├── auth/              # Authentication pages
@@ -74,10 +74,9 @@ arabic-storytelling_Full_stack_version/
 ### Prerequisites
 - Node.js 18+ 
 - MongoDB database
-- Redis server (optional, for caching)
 
 ### Environment Variables
-Create a `.env.local` file in the `stable_version` directory:
+Create a `.env.local` file in the `arabic-storytelling_Full_stack_version` directory:
 
 ```env
 # Database
@@ -97,10 +96,7 @@ SMTP_PORT=587
 SMTP_USER=your-email
 SMTP_PASS=your-password
 
-# Redis (optional)
-REDIS_URL=redis://localhost:6379
-
-# AI Integration (optional)
+# cloud for images hosting Integration (optional)
 FAL_KEY=your-fal-ai-key
 ```
 
@@ -291,9 +287,6 @@ All content should be in Arabic and follow community guidelines for respectful, 
 The platform is optimized for deployment on:
 
 - **Vercel** (recommended for Next.js)
-- **Netlify**
-- **Docker containers**
-- **Traditional hosting** with Node.js support
 
 ### Production Deployment Checklist
 
@@ -310,11 +303,7 @@ For support, feature requests, or bug reports:
 
 - Create an issue in the repository
 - Contact through the platform's contact form
-- Email: [your-email@domain.com]
-
-## 📄 License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+- Email: [mr2221@fayoum.edu.eg]
 
 ## 🙏 Acknowledgments
 

@@ -84,7 +84,7 @@ export function DynamicFooter() {
 
       <div className="mb-2 mt-2">
         © {new Date().getFullYear()} منصة مخيمر. جميع الحقوق محفوظة. &nbsp;|&nbsp;
-        <a href="https://yourplatform.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-vintage-accent">المطور</a>
+        <a href="https://www.linkedin.com/in/mahmoud-elfouad" target="_blank" rel="noopener noreferrer" className="underline hover:text-vintage-accent">المطور</a>
       </div>
 
     </footer>
